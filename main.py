@@ -1,9 +1,11 @@
 import numpy as np
-import casadi
+import casadi as cs
 import math
+import pathlib
 
 # from observability_test_small import compute_gramian
 from three_drones import stlog_symbolic, numlog
+from models import models
 
 
 def main():
@@ -21,22 +23,40 @@ def main():
             u3 * np.ones(n_steps),
         ]
     )
-    numlog_x = numlog(x0, u_control, u_drone, dt, n_steps, eps)
+
+    num_sys = models.MultiRobot(n_robots=3, is_symbolic=False)
+    numlog_x = numlog(num_sys, x0, u_control, u_drone, dt, n_steps, eps)
     print("numlog diagonstics:")
-    print(numlog_x)
+    # print(numlog_x)
     print("condition number = " + str(np.linalg.cond(numlog_x)))
 
-    stlog_fun = stlog_symbolic(2)
+    sym_sys = models.MultiRobot(n_robots=3, is_symbolic=True)
+    stlog_fun = stlog_symbolic(sym_sys, 2)
     stlog_x = stlog_fun(x0, [v0, v1], [u0, u1, u2, u3], dt * n_steps)
     print("stlog diagonstics:")
-    print(stlog_x)
+    # print(stlog_x)
     print("condition number = " + str(np.linalg.cond(stlog_x)))
 
-    err_mat = numlog_x - stlog_x
-    err_rms = np.sum(err_mat**2) / 81.0
-    print("matrix of differences:")
-    print(err_mat)
-    print("rms error = " + str(err_rms))
+    savefile = pathlib.Path("save_data.npz")
+    if savefile.exists() and savefile.is_file():
+        save_data = np.load(savefile)
+        ok = np.allclose(save_data["numlog_x"], numlog_x)
+        if not ok:
+            print("FAILURE")
+            print(save_data["numlog_x"], numlog_x)
+        ok = np.allclose(save_data["stlog_x"], stlog_x)
+        if not ok:
+            print("FAILURE")
+            print(save_data["stlog_x"], stlog_x)
+
+    else:
+        np.savez(savefile, stlog_x=stlog_x, numlog_x=numlog_x)
+
+    # err_mat = numlog_x - stlog_x
+    # err_rms = np.sum(err_mat**2) / 81.0
+    # print("matrix of differences:")
+    # print(err_mat)
+    # print("rms error = " + str(err_rms))
 
 
 # def main_old():

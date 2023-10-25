@@ -1,29 +1,15 @@
-import numpy as np
-import casadi
 import math
 
-
-def compute_f(x_t, u_control_t, u_drone_t):
-    f = np.zeros(9)
-    f[0] = u_control_t[0] * np.cos(x_t[2])
-    f[1] = u_control_t[0] * np.sin(x_t[2])
-    f[2] = u_control_t[1]
-    f[3] = u_drone_t[0] * np.cos(x_t[5])
-    f[4] = u_drone_t[0] * np.sin(x_t[5])
-    f[5] = u_drone_t[1]
-    f[6] = u_drone_t[2] * np.cos(x_t[8])
-    f[7] = u_drone_t[2] * np.sin(x_t[8])
-    f[8] = u_drone_t[3]
-    return f
+import casadi
+import numpy as np
 
 
-def numsolve_sigma(x0, u_control, u_drone, dt, n_steps):
+def numsolve_sigma(sys, x0, u_control, u_drone, dt, n_steps):
     x = np.zeros((9, n_steps))
     x[:, 0] = np.array(x0)
     for i in range(1, n_steps):
-        x[:, i] = x[:, i - 1] + dt * compute_f(
-            x[:, i - 1], u_control[:, i - 1], u_drone[:, i - 1]
-        )
+        dx = sys.dynamics(x[:, i - 1], u_control[:, i - 1], u_drone[:, i - 1]).ravel()
+        x[:, i] = x[:, i - 1] + dt * dx
 
     return x
 
@@ -52,7 +38,7 @@ def obs_sigma(x, n_steps):
     return y
 
 
-def numlog(x0, u_control, u_drone, dt, n_steps, eps):
+def numlog(sys, x0, u_control, u_drone, dt, n_steps, eps):
     if x0.shape != (9,):
         raise ValueError("Expected x0 with shape (9), got " + str(x0.shape))
     if u_control.shape != (2, n_steps):
@@ -82,10 +68,10 @@ def numlog(x0, u_control, u_drone, dt, n_steps, eps):
         x0_minus = np.array(x0, copy=True)
         x0_minus[i] -= eps
         yi_plus = obs_sigma(
-            numsolve_sigma(x0_plus, u_control, u_drone, dt, n_steps), n_steps
+            numsolve_sigma(sys, x0_plus, u_control, u_drone, dt, n_steps), n_steps
         )
         yi_minus = obs_sigma(
-            numsolve_sigma(x0_minus, u_control, u_drone, dt, n_steps), n_steps
+            numsolve_sigma(sys, x0_minus, u_control, u_drone, dt, n_steps), n_steps
         )
         y_all[i, :, :] = (yi_plus - yi_minus) / (2 * eps)
 
@@ -98,39 +84,17 @@ def numlog(x0, u_control, u_drone, dt, n_steps, eps):
     return gramian
 
 
-def stlog_symbolic(order):
-    x = casadi.SX.sym("x", 9)
-    v = casadi.SX.sym("y", 2)
-    u = casadi.SX.sym("v", 4)
-    T = casadi.SX.sym("T")
-    f = casadi.SX.zeros(9)
-    f[0] = v[0] * casadi.cos(x[2])
-    f[1] = v[0] * casadi.sin(x[2])
-    f[2] = v[1]
-    f[3] = u[0] * casadi.cos(x[5])
-    f[4] = u[0] * casadi.sin(x[5])
-    f[5] = u[1]
-    f[6] = u[2] * casadi.cos(x[8])
-    f[7] = u[2] * casadi.sin(x[8])
-    f[8] = u[3]
-    h = casadi.SX.zeros(7)
-    h[0] = x[0]
-    h[1] = x[1]
-    h[2] = x[2]
-    h[3] = x[5]
-    h[4] = x[8]
-    rho1_h = casadi.cos(x[5]) * (x[3] - x[0]) - casadi.sin(x[5]) * (x[4] - x[1])
-    rho1_v = casadi.sin(x[5]) * (x[3] - x[0]) + casadi.cos(x[5]) * (x[4] - x[1])
-    h[5] = casadi.atan2(rho1_v, rho1_h)
-    rho2_h = casadi.cos(x[8]) * (x[6] - x[0]) - casadi.sin(x[8]) * (x[7] - x[1])
-    rho2_v = casadi.sin(x[8]) * (x[6] - x[0]) + np.cos(x[8]) * (x[7] - x[1])
-    h[6] = casadi.atan2(rho2_v, rho2_h)
+def stlog_symbolic(sys, order):
+    x = casadi.MX.sym("x", sys.NX * sys.n_robots)
+    u = casadi.MX.sym("u", sys.NU * (sys.n_robots - 1))
+    v = casadi.MX.sym("v", sys.NU)
+    T = casadi.MX.sym("T")
+    stlog = casadi.MX.zeros(9, 9)
+    lh_store = casadi.MX.zeros(7, order + 1)
+    lh_store[:, 0] = sys.observation(x)
 
-    stlog = casadi.SX.zeros(9, 9)
-    lh_store = casadi.SX.zeros(7, order + 1)
-    lh_store[:, 0] = h
     for l in range(0, order):
-        lh_store[:, l + 1] = casadi.jtimes(lh_store[:, l], x, f)
+        lh_store[:, l + 1] = casadi.jtimes(lh_store[:, l], x, sys.dynamics(x, v, u))
 
     for l in range(0, order):
         for k in range(0, l + 1):
