@@ -1,8 +1,36 @@
+import abc
 import functools
 import math
 
 import casadi as cs
 import numpy as np
+
+
+class ModelBase(abc.ABC):
+    """Base class (Interface) for all nonlinear dynamical system modesl"""
+
+    @abc.abstractmethod
+    def dynamics(self, x, u, *args):
+        ...
+
+    @abc.abstractmethod
+    def observation(self, x, *args):
+        ...
+
+    @property
+    @abc.abstractmethod
+    def nx(self):
+        return -1
+
+    @property
+    @abc.abstractmethod
+    def nu(self):
+        return -1
+
+    @property
+    @abc.abstractmethod
+    def ny(self):
+        return -1
 
 
 class MathFunctions:
@@ -28,6 +56,7 @@ class MathFunctions:
             self._zeros = cs.MX.zeros
             self._reshape = cs.MX.reshape
             self._cat = lambda args: cs.vertcat(*args)
+            self._squeeze = lambda _: _
         else:
             self._cos = math.cos
             self._sin = math.sin
@@ -35,9 +64,10 @@ class MathFunctions:
             self._zeros = np.zeros
             self._reshape = functools.partial(np.reshape, order="F")
             self._cat = np.concatenate
+            self._squeeze = np.squeeze
 
 
-class Robot(MathFunctions):
+class Robot(MathFunctions, ModelBase):
     """
     Base class for a single planar robot, defining the state dynamics and
     dimensions
@@ -45,6 +75,7 @@ class Robot(MathFunctions):
 
     NX = 3  # (innermost) state dimension
     NU = 2  # (innermost) input dimension
+    NY = 1  # (innermost) observation dimension
 
     def dynamics(self, x, u):
         psi = x[2]
@@ -71,12 +102,25 @@ class Robot(MathFunctions):
         hy = s * p_diff[0] + c * p_diff[1]
         return self._atan2(hy, hx)
 
+    @property
+    def nx(self):
+        return self.NX
 
-class MultiRobot(Robot):
+    @property
+    def nu(self):
+        return self.NY
+
+    @property
+    def ny(self):
+        return self.NY
+
+
+class MultiRobot(MathFunctions, ModelBase):
     """A system of multiple robots"""
 
     def __init__(self, n_robots, is_symbolic=False):
         self._n_robots = n_robots
+        self._robots = [Robot(is_symbolic) for _ in range(self._n_robots)]
         super().__init__(is_symbolic)
 
     @property
@@ -87,24 +131,38 @@ class MultiRobot(Robot):
         x = self._state_as2d(x)
         u_drone_t = self._input_as2d(u_drone_t)
 
-        f = self._zeros((self.NX, self._n_robots))
-        for idx in range(self._n_robots):
+        f = self._zeros((Robot.NX, self._n_robots))
+        for idx, robot in enumerate(self._robots):
             u = u_control_t if idx == 0 else u_drone_t[:, idx - 1]
-            f[:, idx] = super(MultiRobot, self).dynamics(x[:, idx], u)
+            f[:, idx] = robot.dynamics(x[:, idx], u)
         return self._reshape(f, (-1, 1))
 
     def observation(self, x):
         x = self._state_as2d(x)
         h_abs_pos = x[0:2, 0]
         h_headings = x[2, :].T
-        h_bearings = []
-        for idx in range(1, self._n_robots):
-            h_bearings.append(super(MultiRobot, self).observation(x[:, idx], x[0:2, 0]))
+        h_bearings = self._zeros((Robot.NY, self._n_robots - 1))
+        for idx, robot in enumerate(self._robots[1:], 1):
+            h_bearings[:, idx - 1] = robot.observation(x[:, idx], x[0:2, 0])
 
-        return self._cat((h_abs_pos, h_headings, *h_bearings))
+        h_bearings = self._squeeze(self._reshape(h_bearings, (-1, 1)))
+
+        return self._cat((h_abs_pos, h_headings, h_bearings))
 
     def _state_as2d(self, x):
-        return self._reshape(x, (self.NX, self._n_robots))
+        return self._reshape(x, (Robot.NX, self._n_robots))
 
     def _input_as2d(self, u):
-        return self._reshape(u, (self.NU, self._n_robots - 1))
+        return self._reshape(u, (Robot.NU, self._n_robots - 1))
+
+    @property
+    def nx(self):
+        return self._n_robots * Robot.NX
+
+    @property
+    def nu(self):
+        return self._n_robots * Robot.NU
+
+    @property
+    def ny(self):
+        return 2 + self._n_robots + (self._n_robots - 1) * Robot.NY
