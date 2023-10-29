@@ -108,7 +108,7 @@ class Robot(MathFunctions, ModelBase):
 
     @property
     def nu(self):
-        return self.NY
+        return self.NU
 
     @property
     def ny(self):
@@ -117,6 +117,9 @@ class Robot(MathFunctions, ModelBase):
 
 class MultiRobot(MathFunctions, ModelBase):
     """A system of multiple robots"""
+
+    NX = 3  # (innermost) state dimension
+    NU = 2  # (innermost) input dimension
 
     def __init__(self, n_robots, is_symbolic=False):
         self._n_robots = n_robots
@@ -165,4 +168,5 @@ class MultiRobot(MathFunctions, ModelBase):
 
     @property
     def ny(self):
-        return 2 + self._n_robots + (self._n_robots - 1) * Robot.NY
+        abs_position_dim = 2
+        return abs_position_dim + self._n_robots + (self._n_robots - 1) * Robot.NY
