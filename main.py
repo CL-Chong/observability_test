@@ -52,11 +52,9 @@ def main():
     else:
         np.savez(savefile, stlog_x=stlog_x, numlog_x=numlog_x)
 
-    # err_mat = numlog_x - stlog_x
-    # err_rms = np.sum(err_mat**2) / 81.0
-    # print("matrix of differences:")
-    # print(err_mat)
-    # print("rms error = " + str(err_rms))
+    err_mat = numlog_x - stlog_x
+    err_rms = np.sum(err_mat**2) / (sym_sys.nx**2)
+    print(f"rms error = {err_rms}")
 
 
 # def main_old():
