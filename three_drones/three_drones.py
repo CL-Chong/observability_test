@@ -2,6 +2,7 @@ import math
 
 import casadi
 import numpy as np
+import joblib
 
 
 def numsolve_sigma(sys, x0, u_control, u_drone, dt, n_steps):
@@ -18,7 +19,7 @@ def numsolve_sigma(sys, x0, u_control, u_drone, dt, n_steps):
     return x, y
 
 
-def numlog(sys, x0, u_control, u_drone, dt, n_steps, eps):
+def numlog(sys, x0, u_control, u_drone, dt, n_steps, eps, perturb_axis=None):
     if x0.shape != (sys.nx,):
         raise ValueError(f"Expected x0 with shape ({sys.nx}), got {x0.shape}")
     if u_control.shape != (sys.NU, n_steps):
@@ -32,23 +33,28 @@ def numlog(sys, x0, u_control, u_drone, dt, n_steps, eps):
     if dt <= 0:
         raise ValueError("Discrete time-step is not positive.")
 
-    y_all = np.zeros(
-        (sys.nx, sys.ny, n_steps)
-    )  # y_all[i,k,:] gives the y^k(t) of the normalised x0-perturbations in the i direction
+    if perturb_axis is None:
+        perturb_axis = np.arange(0, sys.nx, dtype=np.int64)
 
-    for i in range(0, sys.nx):
+    n_perturbed_x = perturb_axis.size
+
+    @joblib.delayed
+    def _perturb(i):
         x0_plus = np.array(x0, copy=True)
         x0_plus[i] += eps
         x0_minus = np.array(x0, copy=True)
         x0_minus[i] -= eps
         _, yi_plus = numsolve_sigma(sys, x0_plus, u_control, u_drone, dt, n_steps)
         _, yi_minus = numsolve_sigma(sys, x0_minus, u_control, u_drone, dt, n_steps)
-        y_all[i, :, :] = (yi_plus - yi_minus) / (2 * eps)
+        return (yi_plus - yi_minus) / (2 * eps)
 
-    gramian = np.zeros((sys.nx, sys.nx))
-    for i in range(0, sys.nx):
+    par_evaluator = joblib.Parallel(12)
+    y_all = par_evaluator(_perturb(i) for i in perturb_axis)
+
+    gramian = np.zeros((n_perturbed_x, n_perturbed_x))
+    for i in range(0, n_perturbed_x):
         for j in range(0, i + 1):
-            gramian[i, j] = dt * np.tensordot(y_all[i, :, :], y_all[j, :, :], axes=2)
+            gramian[i, j] = dt * np.tensordot(y_all[i], y_all[j], axes=2)
             gramian[j, i] = gramian[i, j]
 
     return gramian
