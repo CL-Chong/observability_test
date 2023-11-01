@@ -54,7 +54,7 @@ def numlog(sys, x0, u_control, u_drone, dt, n_steps, eps):
     return gramian
 
 
-def stlog_symbolic(sys, order):
+def stlog_symbolic(sys, order, is_psd=False):
     x = casadi.MX.sym("x", sys.nx)
     u = casadi.MX.sym("u", sys.nu - sys.NU)
     v = casadi.MX.sym("v", sys.NU)
@@ -68,15 +68,26 @@ def stlog_symbolic(sys, order):
     for l in range(0, order):
         lh_store.append(casadi.jtimes(lh_store[l], x, sys.dynamics(x, v, u)))
         dlh_store.append(casadi.jacobian(lh_store[l + 1], x))
-
-    for l in range(0, order):
-        for k in range(0, l + 1):
-            stlog += (
-                (T ** (l + 1)) / ((l + 1) * math.factorial(k) * math.factorial(l - k))
-            ) * casadi.mtimes(
-                dlh_store[k].T,
-                dlh_store[l - k],
-            )
+    if is_psd:
+        for a in range(0, order + 1):
+            for b in range(0, order + 1):
+                stlog += (
+                    (T ** (a + b + 1))
+                    / (math.factorial(a) * math.factorial(b) * (a + b + 1))
+                ) * casadi.mtimes(
+                    dlh_store[a].T,
+                    dlh_store[b],
+                )
+    else:
+        for l in range(0, order):
+            for k in range(0, l + 1):
+                stlog += (
+                    (T ** (l + 1))
+                    / ((l + 1) * math.factorial(k) * math.factorial(l - k))
+                ) * casadi.mtimes(
+                    dlh_store[k].T,
+                    dlh_store[l - k],
+                )
 
     stlog_fun = casadi.Function("stlog_fun", [x, v, u, T], [stlog])
 
