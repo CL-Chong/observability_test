@@ -3,6 +3,7 @@ import casadi as cs
 import math
 import pathlib
 import pandas as pd
+import joblib
 from tqdm import tqdm
 
 # from observability_test_small import compute_gramian
@@ -13,58 +14,70 @@ from models import models
 def main():
     dt = 0.001
     eps = 1e-4
-    n_steps_arr = [10, 50, 100, 500, 1000, 2000]
+    n_steps_arr = [250, 500, 750, 1000]
     num_sys = models.MultiRobot(n_robots=3, is_symbolic=False)
     sym_sys = models.MultiRobot(n_robots=3, is_symbolic=True)
     n_samples = 1000
-    data_arr = []
     max_order = 6
 
-    rng = np.random.default_rng(1919)
-    for case_id in tqdm(range(0, n_samples)):
-        for n_steps in n_steps_arr:
-            x0 = rng.uniform(-1.0, 1.0, (sym_sys.nx,))
-            u_control_const = rng.uniform(-1.0, 1.0, (sym_sys.NU,))
-            u_control = u_control_const.reshape((sym_sys.NU, 1)) * np.ones(
-                (sym_sys.NU, n_steps)
-            )  # broadcasting column vector
-            u_drone_const = rng.uniform(-1.0, 1.0, (sym_sys.nu - sym_sys.NU,))
-            u_drone = u_drone_const.reshape((sym_sys.nu - sym_sys.NU, 1)) * np.ones(
-                (sym_sys.nu - sym_sys.NU, n_steps)
-            )  # broadcasting column vector
-            for order_stlog in range(1, max_order + 1):
-                diagnostic_log = [case_id, dt * n_steps] + log_comparison(
-                    dt,
-                    eps,
-                    n_steps,
-                    x0,
-                    u_control_const,
-                    u_drone_const,
-                    u_control,
-                    u_drone,
-                    order_stlog,
-                    num_sys,
-                    sym_sys,
-                )
-                data_arr.append(diagnostic_log)
+    @joblib.delayed
+    def _case_check(i, n_steps, order_stlog):
+        x0, u_control_const, u_drone_const = get_ic(i, sym_sys)
 
-        df = pd.DataFrame(
-            data_arr,
-            columns=[
-                "case_id",
-                "t_span",
-                "order(stlog)",
-                "tr(numlog)",
-                "sing_max(numlog)",
-                "sing_min(numlog)",
-                "tr(stlog)",
-                "sing_max(stlog)",
-                "sing_min(stlog)",
-                "mae(diff)",
-                "rms(diff)",
-            ],
+        u_control = u_control_const.reshape((sym_sys.NU, 1)) * np.ones(
+            (sym_sys.NU, n_steps)
+        )  # broadcasting column vector
+        u_drone = u_drone_const.reshape((sym_sys.nu - sym_sys.NU, 1)) * np.ones(
+            (sym_sys.nu - sym_sys.NU, n_steps)
+        )  # broadcasting column vector
+
+        diagnostic_log = [i, dt * n_steps] + log_comparison(
+            dt,
+            eps,
+            n_steps,
+            x0,
+            u_control_const,
+            u_drone_const,
+            u_control,
+            u_drone,
+            order_stlog,
+            num_sys,
+            sym_sys,
         )
-        df.to_csv("stlog_vs_numlog_data.csv", index=False)
+        return diagnostic_log
+
+    def get_ic(i, sym_sys):
+        rng = np.random.default_rng(i**2)
+        x0 = rng.uniform(-1.0, 1.0, (sym_sys.nx,))
+        u_control_const = rng.uniform(-1.0, 1.0, (sym_sys.NU,))
+        u_drone_const = rng.uniform(-1.0, 1.0, (sym_sys.nu - sym_sys.NU,))
+        return x0, u_control_const, u_drone_const
+
+    par_evaluator = joblib.Parallel(4)
+    data_arr = par_evaluator(
+        _case_check(i, n_steps, order_stlog)
+        for i in tqdm(range(0, n_samples))
+        for n_steps in n_steps_arr
+        for order_stlog in range(1, max_order + 1)
+    )
+
+    df = pd.DataFrame(
+        data_arr,
+        columns=[
+            "case_id",
+            "t_span",
+            "order(stlog)",
+            "tr(numlog)",
+            "sing_max(numlog)",
+            "sing_min(numlog)",
+            "tr(stlog)",
+            "sing_max(stlog)",
+            "sing_min(stlog)",
+            "mae(diff)",
+            "rms(diff)",
+        ],
+    )
+    df.to_csv(f"stlog_vs_numlog_data{n_samples}.csv", index=False)
 
 
 def log_comparison(
