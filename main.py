@@ -7,7 +7,7 @@ import joblib
 from tqdm import tqdm
 
 # from observability_test_small import compute_gramian
-from three_drones import stlog_symbolic, numlog
+from observability_aware_control.algorithms import stlog_symbolic, numlog
 from models import models
 
 

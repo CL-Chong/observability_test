@@ -142,7 +142,6 @@ class MultiRobot(MathFunctions, ModelBase):
 
     def observation(self, x):
         x = self._state_as2d(x)
-        h_abs_pos = x[0:2, 0]
         h_headings = x[2, :].T
         h_bearings = self._zeros((Robot.NY, self._n_robots - 1))
         for idx, robot in enumerate(self._robots[1:], 1):
@@ -150,7 +149,7 @@ class MultiRobot(MathFunctions, ModelBase):
 
         h_bearings = self._squeeze(self._reshape(h_bearings, (-1, 1)))
 
-        return self._cat((h_abs_pos, h_headings, h_bearings))
+        return self._cat((h_headings, h_bearings))
 
     def _state_as2d(self, x):
         return self._reshape(x, (Robot.NX, self._n_robots))
@@ -168,5 +167,4 @@ class MultiRobot(MathFunctions, ModelBase):
 
     @property
     def ny(self):
-        abs_position_dim = 2
-        return abs_position_dim + self._n_robots + (self._n_robots - 1) * Robot.NY
+        return self._n_robots + (self._n_robots - 1) * Robot.NY
