@@ -77,7 +77,11 @@ def main():
             "rms(diff)",
         ],
     )
-    df.to_csv(f"stlog_vs_numlog_data{n_samples}.csv", index=False)
+    data_dir = pathlib.Path.cwd() / "data"
+    save_file = f"stlog_vs_numlog_data{n_samples}.csv"
+    if not data_dir.exists():
+        data_dir.mkdir(parents=True)
+    df.to_csv(save_file, index=False)
 
 
 def log_comparison(
