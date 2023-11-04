@@ -50,13 +50,15 @@ def numlog(sys, x0, u_control, u_drone, dt, n_steps, eps, perturb_axis=None):
 
     par_evaluator = joblib.Parallel(12)
     y_all = par_evaluator(_perturb(i) for i in perturb_axis)
+    if y_all is None:
+        raise RuntimeError("Perturbation failed")
 
     gramian = np.zeros((n_perturbed_x, n_perturbed_x))
     for i in range(0, n_perturbed_x):
         for j in range(0, i + 1):
-            gramian[i, j] = dt * np.tensordot(y_all[i], y_all[j], axes=2)
-            gramian[j, i] = gramian[i, j]
+            gramian[i, j] = dt * (y_all[i] * y_all[j]).sum()
 
+    gramian = np.tril(gramian, -1).T + np.tril(gramian)
     return gramian
 
 
