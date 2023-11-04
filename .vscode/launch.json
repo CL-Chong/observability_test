@@ -5,6 +5,17 @@
   "version": "0.2.0",
   "configurations": [
     {
+      "name": "Optimization",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/optimization.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}/src"
+      }
+    },
+    {
       "name": "Comparative Study",
       "type": "python",
       "request": "launch",
