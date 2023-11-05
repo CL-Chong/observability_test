@@ -2,32 +2,33 @@ import numpy as np
 import joblib
 
 
-def numsolve_sigma(sys, x0, u_control, u_drone, dt, n_steps):
+def numsolve_sigma(sys, x0, u, dt):
+    dt = np.asarray(dt)
+    n_steps = dt.size + 1
     x = np.zeros((sys.nx, n_steps))
     x[:, 0] = np.array(x0)
 
     y = np.zeros((sys.ny, n_steps))
     y[:, 0] = sys.observation(x0)
-    for i in range(1, n_steps):
-        dx = sys.dynamics(x[:, i - 1], u_control[:, i - 1], u_drone[:, i - 1]).ravel()
-        x[:, i] = x[:, i - 1] + dt * dx
-        y[:, i] = sys.observation(x[:, i])
+    for k, dt_k in enumerate(dt, 1):
+        dx = sys.dynamics(x[:, k - 1], u[:, k - 1]).ravel()
+        x[:, k] = x[:, k - 1] + dt_k * dx
+        y[:, k] = sys.observation(x[:, k])
 
     return x, y
 
 
-def numlog(sys, x0, u_control, u_drone, dt, n_steps, eps, perturb_axis=None):
+def numlog(sys, x0, u, dt, eps, perturb_axis=None):
+    dt = np.asarray(dt)
+    n_steps = dt.size
     if x0.shape != (sys.nx,):
         raise ValueError(f"Expected x0 with shape ({sys.nx}), got {x0.shape}")
-    if u_control.shape != (sys.NU, n_steps):
+    if u.shape != (sys.nu, n_steps):
         raise ValueError(
-            f"Expected matrix with shape ({sys.NU}, {n_steps}), got {u_control.shape}"
+            f"Expected matrix with shape ({sys.NU}, {n_steps}), got {u.shape}"
         )
-    if u_drone.shape != (sys.nu - sys.NU, n_steps):
-        raise ValueError(
-            f"Expected matrix with shape ({sys.nu - sys.NU}, {n_steps}), got {u_drone.shape}"
-        )
-    if dt <= 0:
+
+    if np.any(dt) <= 0:
         raise ValueError("Discrete time-step is not positive.")
 
     if perturb_axis is None:
@@ -41,8 +42,8 @@ def numlog(sys, x0, u_control, u_drone, dt, n_steps, eps, perturb_axis=None):
         x0_plus[i] += eps
         x0_minus = np.array(x0, copy=True)
         x0_minus[i] -= eps
-        _, yi_plus = numsolve_sigma(sys, x0_plus, u_control, u_drone, dt, n_steps)
-        _, yi_minus = numsolve_sigma(sys, x0_minus, u_control, u_drone, dt, n_steps)
+        _, yi_plus = numsolve_sigma(sys, x0_plus, u, dt[1:])
+        _, yi_minus = numsolve_sigma(sys, x0_minus, u, dt[1:])
         return (yi_plus - yi_minus) / (2 * eps)
 
     par_evaluator = joblib.Parallel(12)
@@ -53,7 +54,7 @@ def numlog(sys, x0, u_control, u_drone, dt, n_steps, eps, perturb_axis=None):
     gramian = np.zeros((n_perturbed_x, n_perturbed_x))
     for i in range(0, n_perturbed_x):
         for j in range(0, i + 1):
-            gramian[i, j] = dt * (y_all[i] * y_all[j]).sum()
+            gramian[i, j] = (dt * y_all[i] * y_all[j]).sum()
 
     gramian = np.tril(gramian, -1).T + np.tril(gramian)
     return gramian

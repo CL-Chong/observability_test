@@ -130,14 +130,13 @@ class MultiRobot(MathFunctions, ModelBase):
     def n_robots(self):
         return self._n_robots
 
-    def dynamics(self, x, u_control_t, u_drone_t):
+    def dynamics(self, x, u):
         x = self._state_as2d(x)
-        u_drone_t = self._input_as2d(u_drone_t)
+        u = self._input_as2d(u)
 
         f = self._zeros((Robot.NX, self._n_robots))
         for idx, robot in enumerate(self._robots):
-            u = u_control_t if idx == 0 else u_drone_t[:, idx - 1]
-            f[:, idx] = robot.dynamics(x[:, idx], u)
+            f[:, idx] = robot.dynamics(x[:, idx], u[:, idx])
         return self._reshape(f, (-1, 1))
 
     def observation(self, x):
@@ -155,7 +154,7 @@ class MultiRobot(MathFunctions, ModelBase):
         return self._reshape(x, (Robot.NX, self._n_robots))
 
     def _input_as2d(self, u):
-        return self._reshape(u, (Robot.NU, self._n_robots - 1))
+        return self._reshape(u, (Robot.NU, self._n_robots))
 
     @property
     def nx(self):

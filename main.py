@@ -32,15 +32,13 @@ def main():
             (sym_sys.nu - sym_sys.NU, n_steps)
         )  # broadcasting column vector
 
+        u = np.row_stack([u_control, u_drone])
         diagnostic_log = [i, dt * n_steps] + log_comparison(
-            dt,
+            np.ones(n_steps) * dt,
             eps,
             n_steps,
             x0,
-            u_control_const,
-            u_drone_const,
-            u_control,
-            u_drone,
+            u,
             order_stlog,
             num_sys,
             sym_sys,
@@ -90,21 +88,18 @@ def log_comparison(
     eps,
     n_steps,
     x0,
-    u_control_const,
-    u_drone_const,
-    u_control,
-    u_drone,
+    u,
     order_stlog,
     num_sys,
     sym_sys,
 ):
-    numlog_x = numlog(num_sys, x0, u_control, u_drone, dt, n_steps, eps)
+    numlog_x = numlog(num_sys, x0, u, dt, eps)
     tr_num = np.trace(numlog_x)
     sing_max_num = np.linalg.norm(numlog_x, 2)
     sing_min_num = np.linalg.norm(numlog_x, -2)
 
     stlog_fun = stlog(sym_sys, order_stlog)
-    stlog_x = stlog_fun(x0, u_control_const, u_drone_const, dt * n_steps)
+    stlog_x = stlog_fun(x0, u[:, 0], np.sum(dt))
     tr_st = np.trace(stlog_x)
     sing_max_st = np.linalg.norm(stlog_x, 2)
     sing_min_st = np.linalg.norm(stlog_x, -2)

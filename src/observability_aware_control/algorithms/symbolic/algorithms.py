@@ -4,8 +4,7 @@ import casadi
 
 def stlog(sys, order, is_psd=False):
     x = casadi.MX.sym("x", sys.nx)
-    u = casadi.MX.sym("u", sys.nu - sys.NU)
-    v = casadi.MX.sym("v", sys.NU)
+    u = casadi.MX.sym("u", sys.nu)
     T = casadi.MX.sym("T")
     stlog = casadi.MX.zeros(sys.nx, sys.nx)
     lh_store = []
@@ -14,7 +13,7 @@ def stlog(sys, order, is_psd=False):
     dlh_store.append(casadi.jacobian(lh_store[0], x))
 
     for l in range(0, order):
-        lh_store.append(casadi.jtimes(lh_store[l], x, sys.dynamics(x, v, u)))
+        lh_store.append(casadi.jtimes(lh_store[l], x, sys.dynamics(x, u)))
         dlh_store.append(casadi.jacobian(lh_store[l + 1], x))
     if is_psd:
         for a in range(0, order + 1):
@@ -37,6 +36,6 @@ def stlog(sys, order, is_psd=False):
                     dlh_store[l - k],
                 )
 
-    stlog_fun = casadi.Function("stlog_fun", [x, v, u, T], [stlog])
+    stlog_fun = casadi.Function("stlog_fun", [x, u, T], [stlog])
 
     return stlog_fun
