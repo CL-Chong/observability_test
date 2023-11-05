@@ -1,0 +1,24 @@
+[project]
+authors = [
+  { name = "H S Helson Go", email = "hei.go@mail.utoronto.ca" },
+  { name = "CL-Chong", email = "chonpselements@gmail.com" },
+]
+name = "observability_aware_control"
+version = "0.0.1"
+description = "Observability (Gramian)-based control and path planning"
+license = { text = "MIT" }
+requires-python = ">=3.8"
+dependencies = ["numpy"]
+
+[project.optional-dependencies]
+profiling = ["tqdm", "pandas"]
+test = ["pytest"]
+symbolic = ["casadi"]
+numeric = ["joblib"]
+
+[tool.pytest.ini_options]
+filterwarnings = "ignore::DeprecationWarning"
+pythonpath = ["src"]
+
+[tool.isort]
+profile = "black"
