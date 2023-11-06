@@ -58,19 +58,19 @@ class MultiRobot(model_base.ModelBase):
     def n_robots(self):
         return self._n_robots
 
-    @functools.partial(jax.jit, static_argnames=("self"))
+    @functools.partial(jax.jit, static_argnames=("self",))
     def dynamics(self, x, u):
         x = jnp.reshape(x, (Robot.NX, -1), order="F")
         u = jnp.reshape(u, (Robot.NU, -1), order="F")
 
         return Robot.dynamics(x, u).ravel(order="F")
 
-    @functools.partial(jax.jit, static_argnames=("self"))
+    @functools.partial(jax.jit, static_argnames=("self",))
     @functools.partial(jax.vmap, in_axes=(None, 1), out_axes=1)
     def observation(self, x):
         x = jnp.reshape(x, (Robot.NX, -1), order="F")
         h_headings = x[2, :].T
         pos_ref = x[0:2, 0]
-        h_bearings = Robot.observation(x, pos_ref)
+        h_bearings = Robot.observation(x[:, 1:], pos_ref)
 
         return jnp.concatenate([h_headings, h_bearings])
