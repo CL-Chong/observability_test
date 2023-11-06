@@ -10,15 +10,14 @@ NU = 2
 
 @functools.partial(jax.jit, static_argnames=("sys",))
 def numsolve_sigma(sys, x0, u, dt):
-    x = [x0]
+    def _update(x_op, tup):
+        u = tup[:-1]
+        dt = tup[-1]
+        return x_op + dt * sys.dynamics(x_op, u), x_op
 
-    for k, dt_k in enumerate(dt, 1):
-        dx = sys.dynamics(x[-1], u[:, k - 1])
-        x.append(x[-1] + dt_k * dx)
+    _, x = jax.lax.scan(_update, init=x0, xs=jnp.vstack([u, dt]).T)
 
-    x = jnp.array(x).T
-
-    return x, sys.observation(x)
+    return x.T, sys.observation(x.T)
 
 
 @functools.partial(jax.jit, static_argnames=("sys",))
@@ -33,22 +32,16 @@ def _perturb(sys, x0_plus, x0_minus, u, dts):
 def _numlog(sys, x0, u, dt, eps, perturb_axis):
     if perturb_axis is None:
         perturb_axis = jnp.arange(0, sys.nx)
-    n_perturbed_x = len(perturb_axis)
+    perturb_axis = jnp.asarray(perturb_axis)
 
     perturb_bases = jnp.eye(x0.size)[:, perturb_axis]
     x0_plus = x0[..., None] + eps * perturb_bases
     x0_minus = x0[..., None] - eps * perturb_bases
-    y_all = _perturb(sys, x0_plus, x0_minus, u, dt[1:]) / (2.0 * eps)
+    y_all = _perturb(sys, x0_plus, x0_minus, u, dt) / (2.0 * eps)
 
-    gramian = jnp.zeros((n_perturbed_x, n_perturbed_x))
-    for i in range(0, n_perturbed_x):
-        for j in range(0, i + 1):
-            v = (dt * y_all[:, :, i] * y_all[:, :, j]).sum()
-            gramian = gramian.at[i, j].set(v)
+    [xm, ym] = jnp.meshgrid(perturb_axis, perturb_axis)
 
-    gramian = jnp.tril(gramian, -1).T + jnp.tril(gramian)
-
-    return gramian
+    return jnp.sum(dt[:, None, None] * y_all[:, :, xm] * y_all[:, :, ym], axis=(0, 1))
 
 
 def numlog(sys, x0, u, dt, eps, perturb_axis=None):

@@ -4,13 +4,13 @@ import joblib
 
 def numsolve_sigma(sys, x0, u, dt):
     dt = np.asarray(dt)
-    n_steps = dt.size + 1
+    n_steps = dt.size
     x = np.zeros((sys.nx, n_steps))
     x[:, 0] = np.array(x0)
 
     y = np.zeros((sys.ny, n_steps))
     y[:, 0] = sys.observation(x0)
-    for k, dt_k in enumerate(dt, 1):
+    for k, dt_k in enumerate(dt[1:], 1):
         dx = sys.dynamics(x[:, k - 1], u[:, k - 1]).ravel()
         x[:, k] = x[:, k - 1] + dt_k * dx
         y[:, k] = sys.observation(x[:, k])
@@ -42,8 +42,8 @@ def numlog(sys, x0, u, dt, eps, perturb_axis=None):
         x0_plus[i] += eps
         x0_minus = np.array(x0, copy=True)
         x0_minus[i] -= eps
-        _, yi_plus = numsolve_sigma(sys, x0_plus, u, dt[1:])
-        _, yi_minus = numsolve_sigma(sys, x0_minus, u, dt[1:])
+        _, yi_plus = numsolve_sigma(sys, x0_plus, u, dt)
+        _, yi_minus = numsolve_sigma(sys, x0_minus, u, dt)
         return (yi_plus - yi_minus) / (2 * eps)
 
     par_evaluator = joblib.Parallel(12)
