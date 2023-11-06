@@ -1,4 +1,5 @@
 import importlib
+import pathlib
 
 import jax
 import jax.numpy as jnp
@@ -8,7 +9,6 @@ from scipy import optimize
 
 from models.autodiff import models
 from observability_aware_control.algorithms.autodiff import numlog, numsolve_sigma
-
 
 eps = 1e-3
 n_steps = 100
@@ -107,6 +107,7 @@ print("Running optimization problem")
 soln = optimize.minimize(**problem)
 
 soln_save = {k: v for k, v in soln.items() if isinstance(v, (jnp.ndarray, int, float))}
+(pathlib.Path.cwd() / "data").mkdir(exist_ok=True)
 jnp.savez("data/optimization_results.npz", **soln_save)
 
 
