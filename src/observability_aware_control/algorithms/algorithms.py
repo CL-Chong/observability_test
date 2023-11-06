@@ -33,6 +33,7 @@ def numlog(sys, x0, u, dt, eps, perturb_axis=None):
 
     if perturb_axis is None:
         perturb_axis = np.arange(0, sys.nx, dtype=np.int64)
+    perturb_axis = np.asarray(perturb_axis)
 
     n_perturbed_x = perturb_axis.size
 

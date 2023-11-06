@@ -39,7 +39,8 @@ def _numlog(sys, x0, u, dt, eps, perturb_axis):
     x0_minus = x0[..., None] - eps * perturb_bases
     y_all = _perturb(sys, x0_plus, x0_minus, u, dt) / (2.0 * eps)
 
-    [xm, ym] = jnp.meshgrid(perturb_axis, perturb_axis)
+    coord_vec = jnp.arange(0, perturb_axis.size)
+    [xm, ym] = jnp.meshgrid(coord_vec, coord_vec)
 
     return jnp.sum(dt[:, None, None] * y_all[:, :, xm] * y_all[:, :, ym], axis=(0, 1))
 

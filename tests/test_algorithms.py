@@ -53,12 +53,22 @@ def test_numsolve():
 
 def test_numlog():
     for i_trial in range(NUM_TRIALS):
+        if i_trial == 0:
+            axes = None
+        else:
+            nx = params["num"]["sys"].nx
+            n_axes = RNG.integers(2, nx - 1)
+            axes = RNG.choice(np.arange(1, nx), n_axes, replace=False)
         rand_vals = generate_ic_and_controls()
         params["num"].update(rand_vals)
         params["ad"].update({k: jnp.asarray(v) for k, v in rand_vals.items()})
 
-        num_results = (algorithms.numlog(**params["num"], eps=np.float32(EPS)),)
-        ad_results = (ad_algorithms.numlog(**params["ad"], eps=np.float32(EPS)),)
+        num_results = algorithms.numlog(
+            **params["num"], eps=np.float32(EPS), perturb_axis=axes
+        )
+        ad_results = ad_algorithms.numlog(
+            **params["ad"], eps=np.float32(EPS), perturb_axis=axes
+        )
         npt.assert_allclose(
             num_results,
             ad_results,
