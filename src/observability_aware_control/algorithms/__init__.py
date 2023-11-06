@@ -1,1 +1,1 @@
-from .algorithms import stlog_symbolic, numlog
+from .algorithms import numlog

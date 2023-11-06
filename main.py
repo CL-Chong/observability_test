@@ -7,7 +7,8 @@ import joblib
 from tqdm import tqdm
 
 # from observability_test_small import compute_gramian
-from observability_aware_control.algorithms import stlog_symbolic, numlog
+from observability_aware_control.algorithms import numlog
+from observability_aware_control.algorithms.symbolic import stlog
 from models import models
 
 
@@ -102,7 +103,7 @@ def log_comparison(
     sing_max_num = np.linalg.norm(numlog_x, 2)
     sing_min_num = np.linalg.norm(numlog_x, -2)
 
-    stlog_fun = stlog_symbolic(sym_sys, order_stlog)
+    stlog_fun = stlog(sym_sys, order_stlog)
     stlog_x = stlog_fun(x0, u_control_const, u_drone_const, dt * n_steps)
     tr_st = np.trace(stlog_x)
     sing_max_st = np.linalg.norm(stlog_x, 2)
