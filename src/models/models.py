@@ -137,18 +137,7 @@ class MultiRobot(MathFunctions, ModelBase):
         f = self._zeros((Robot.NX, self._n_robots))
         for idx, robot in enumerate(self._robots):
             f[:, idx] = robot.dynamics(x[:, idx], u[:, idx])
-        return self._reshape(f, (-1, 1))
-
-    def observation(self, x):
-        x = self._state_as2d(x)
-        h_headings = x[2, :].T
-        h_bearings = self._zeros((Robot.NY, self._n_robots - 1))
-        for idx, robot in enumerate(self._robots[1:], 1):
-            h_bearings[:, idx - 1] = robot.observation(x[:, idx], x[0:2, 0])
-
-        h_bearings = self._squeeze(self._reshape(h_bearings, (-1, 1)))
-
-        return self._cat((h_headings, h_bearings))
+        return self._squeeze(self._reshape(f, (-1, 1)))
 
     def _state_as2d(self, x):
         return self._reshape(x, (Robot.NX, self._n_robots))
@@ -164,6 +153,36 @@ class MultiRobot(MathFunctions, ModelBase):
     def nu(self):
         return self._n_robots * Robot.NU
 
+
+class ReferenceSensingRobots(MultiRobot):
+    @property
+    def ny(self):
+        return self._n_robots + self._n_robots * Robot.NY
+
+    def observation(self, x, pos_ref):
+        x = self._state_as2d(x)
+        h_headings = x[2, :].T
+        h_bearings = self._zeros((Robot.NY, self._n_robots))
+        for idx, robot in enumerate(self._robots):
+            h_bearings[:, idx] = robot.observation(x[:, idx], pos_ref)
+
+        h_bearings = self._squeeze(self._reshape(h_bearings, (-1, 1)))
+
+        return self._cat((h_headings, h_bearings))
+
+
+class LeaderFollowerRobots(MultiRobot):
     @property
     def ny(self):
         return self._n_robots + (self._n_robots - 1) * Robot.NY
+
+    def observation(self, x):
+        x = self._state_as2d(x)
+        h_headings = x[2, :].T
+        h_bearings = self._zeros((Robot.NY, self._n_robots - 1))
+        for idx, robot in enumerate(self._robots[1:], 1):
+            h_bearings[:, idx - 1] = robot.observation(x[:, idx], x[0:2, 0])
+
+        h_bearings = self._squeeze(self._reshape(h_bearings, (-1, 1)))
+
+        return self._cat((h_headings, h_bearings))

@@ -6,14 +6,24 @@ import jax.numpy as jnp
 from .. import model_base
 
 
-class Robot(model_base.ModelBase):
+class Robot:
     NX = 3
     NU = 2
+    NY = 1
+
+    @staticmethod
+    def dynamics(x, u):
+        if jnp.ndim(x) == 1:
+            x = x[:, None]
+
+        if jnp.ndim(u) == 1:
+            u = u[:, None]
+        return Robot._dynamics(x, u).squeeze()
 
     @staticmethod
     @jax.jit
     @functools.partial(jax.vmap, in_axes=(1, 1), out_axes=1)
-    def dynamics(x, u):
+    def _dynamics(x, u):
         psi = x[2]
         v = u[0]
         w = u[1]
@@ -37,6 +47,18 @@ class Robot(model_base.ModelBase):
         hy = s * p_diff[0] + c * p_diff[1]
         return jnp.arctan2(hy, hx)
 
+    @property
+    def nx(self):
+        return self.NX
+
+    @property
+    def nu(self):
+        return self.NU
+
+    @property
+    def ny(self):
+        return self.NY
+
 
 class MultiRobot(model_base.ModelBase):
     def __init__(self, n_robots):
@@ -51,10 +73,6 @@ class MultiRobot(model_base.ModelBase):
         return self._n_robots * Robot.NU
 
     @property
-    def ny(self):
-        return self._n_robots + (self._n_robots - 1) * 2
-
-    @property
     def n_robots(self):
         return self._n_robots
 
@@ -64,6 +82,27 @@ class MultiRobot(model_base.ModelBase):
         u = jnp.reshape(u, (Robot.NU, -1), order="F")
 
         return Robot.dynamics(x, u).ravel(order="F")
+
+
+class ReferenceSensingRobots(MultiRobot):
+    @property
+    def ny(self):
+        return self._n_robots + (self._n_robots - 1) * 2
+
+    @functools.partial(jax.jit, static_argnames=("self",))
+    @functools.partial(jax.vmap, in_axes=(None, 1, 1), out_axes=1)
+    def observation(self, x, pos_ref):
+        x = jnp.reshape(x, (Robot.NX, -1), order="F")
+        h_headings = x[2, :].ravel()
+        h_bearings = Robot.observation(x, pos_ref)
+
+        return jnp.concatenate([h_headings, h_bearings])
+
+
+class LeaderFollowerRobots(MultiRobot):
+    @property
+    def ny(self):
+        return self._n_robots + (self._n_robots - 1) * 2
 
     @functools.partial(jax.jit, static_argnames=("self",))
     @functools.partial(jax.vmap, in_axes=(None, 1), out_axes=1)
