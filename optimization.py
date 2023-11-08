@@ -14,63 +14,68 @@ eps = 1e-3
 n_steps = 100
 dt = jnp.ones(n_steps) * 0.1
 rng = np.random.default_rng(seed=114514)
-mdl = models.MultiRobot(n_robots=3)
+
+N_ROBOTS = 3
 
 
-pattern_angle = jnp.linspace(0, 2 * jnp.pi, mdl.n_robots + 1)[:-1][None]
-x0 = jnp.vstack(
+pattern_angle = jnp.linspace(0, 2 * jnp.pi, N_ROBOTS + 1)[:-1][None]
+x0_basic = jnp.vstack(
     [
         jnp.cos(pattern_angle) / jnp.sqrt(3),
         jnp.sin(pattern_angle) / jnp.sqrt(3),
         jnp.zeros((1, 3)),
     ]
 )
-x0 = jnp.ravel(x0, order="F")
-u_full = jnp.vstack(
+
+x0_leader = x0_basic[:, 0]
+x0_follower = x0_basic[:, 1:].ravel(order="F")
+
+u_leader = jnp.tile(jnp.array([1, 0])[..., None], (1, n_steps))
+u_follower = jnp.vstack(
     [
-        jnp.ones((1, n_steps)),
+        1.0 + rng.normal(0.0, 0.01, (1, n_steps)),
         jnp.zeros((1, n_steps)),
-        1.0 + rng.normal(0.0, 0.1, (1, n_steps)),
-        jnp.zeros((1, n_steps)),
-        1.0 + rng.normal(0.0, 0.1, (1, n_steps)),
+        1.0 + rng.normal(0.0, 0.01, (1, n_steps)),
         jnp.zeros((1, n_steps)),
     ]
 )
-u_control = u_full[:2, :]
-u_active = u_full[2:, :]
+
+mdl = models.ReferenceSensingRobots(n_robots=2)
+leader_x = numsolve_sigma(
+    models.Robot(), x0_leader, u_leader, dt, without_observation=True
+)[0:2, :]
 
 
 def numlog_objective(u):
-    u = jnp.vstack([u_control, u.reshape(-1, n_steps, order="F")])
-    W_o = numlog(mdl, x0, u, dt, eps, [3, 4, 6, 7])
+    u = u.reshape(mdl.nu, n_steps, order="F")
+    W_o = numlog(
+        mdl, x0_follower, u, dt, eps, perturb_axis=[0, 1, 3, 4], h_args=leader_x
+    )
     return jnp.linalg.cond(W_o)
 
 
-x, _ = numsolve_sigma(mdl, x0, u_full, dt)
+def leader_tracking_constr(u):
+    u = u.reshape(mdl.nu, n_steps, order="F")
+    x_actual = numsolve_sigma(mdl, x0_follower, u, dt, without_observation=True)
+    x_actual = x_actual.reshape(-1, mdl.n_robots, x_actual.shape[-1], order="F")[
+        0:2, :, :
+    ]
+
+    dx = x_actual - leader_x[:, None, :]
+    return jnp.linalg.norm(dx, axis=0).ravel()
+
+
+x = numsolve_sigma(mdl, x0_follower, u_follower, dt, without_observation=True)
 
 x_dst = x[:, -1].reshape(mdl.n_robots, -1)[:, 0:2]
 
 
-def leader_tracking_constr(u):
-    u = jnp.vstack([u_control, u.reshape(-1, n_steps, order="F")])
-    x_actual, _ = numsolve_sigma(mdl, x0, u, dt)
-    x_actual = jnp.reshape(x_actual, (-1, mdl.n_robots, x_actual.shape[-1]), order="F")[
-        0:2, :, :
-    ]
-
-    return jnp.linalg.norm(
-        x_actual[:, 1:, :] - x_actual[:, 0, :][:, None, :], axis=0
-    ).ravel()
-
-
 def destination_constraint(u):
-    u = jnp.vstack([u_control, u.reshape(-1, n_steps, order="F")])
-    x_actual, _ = numsolve_sigma(mdl, x0, u, dt)
+    u = u.reshape(mdl.nu, n_steps, order="F")
+    x_actual = numsolve_sigma(mdl, x0_follower, u, dt, without_observation=True)
     x_actual = x_actual[:, -1].reshape(mdl.n_robots, -1)[:, 0:2]
 
-    dx = x_actual[1:, :] - x_dst[1:, :]
-
-    return dx.ravel()
+    return (x_actual - x_dst).ravel()
 
 
 print("JIT compiled constraint, continuing")
@@ -79,7 +84,7 @@ cfg = importlib.import_module("config.optimcfg")
 
 problem = {
     "fun": numlog_objective,
-    "x0": u_active.ravel(order="F"),
+    "x0": u_follower.ravel(order="F"),
     "jac": jax.jacobian(numlog_objective),
     "hess": jax.hessian(numlog_objective),
 }
@@ -94,15 +99,13 @@ problem.update(
         "method": cfg.METHOD,
         "options": cfg.OPTIONS,
         "constraints": optimize.NonlinearConstraint(
-            leader_tracking_constr,
-            lb=jnp.ones(2 * n_steps) * 0.5,
-            ub=jnp.ones(2 * n_steps) * 1.5,
-            jac=jax.jacobian(leader_tracking_constr),
+            destination_constraint,
+            lb=0,
+            ub=0,
+            jac=jax.jacobian(destination_constraint),
         ),
     }
 )
-
-print("Running optimization problem")
 
 soln = optimize.minimize(**problem)
 
@@ -114,9 +117,8 @@ jnp.savez("data/optimization_results.npz", **soln_save)
 u_opt = jnp.reshape(soln.x, (-1, n_steps), order="F")
 
 _, ax = plt.subplots()
-for u_it, style in zip([u_opt, u_active], [":", "--"]):
-    u = jnp.vstack([u_control, u_it])
-    x, y = numsolve_sigma(mdl, x0, u, dt)
+for u, style in zip([u_opt, u_follower], [":", "--"]):
+    x, y = numsolve_sigma(mdl, x0_follower, u, dt, h_args=leader_x)
 
     x = jnp.reshape(x, (models.Robot.NX, mdl.n_robots, -1), order="F")
     for i_robot in range(mdl.n_robots):
