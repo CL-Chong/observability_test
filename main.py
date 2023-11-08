@@ -16,8 +16,8 @@ def main():
     dt = 0.001
     eps = 1e-4
     n_steps_arr = [250, 500, 750, 1000]
-    num_sys = models.MultiRobot(n_robots=3, is_symbolic=False)
-    sym_sys = models.MultiRobot(n_robots=3, is_symbolic=True)
+    num_sys = models.LeaderFollowerRobots(n_robots=3, is_symbolic=False)
+    sym_sys = models.LeaderFollowerRobots(n_robots=3, is_symbolic=True)
     n_samples = 1000
     max_order = 6
 
