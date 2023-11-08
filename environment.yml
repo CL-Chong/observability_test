@@ -1,0 +1,14 @@
+name: obs_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - numpy
+  - scipy
+  - joblib
+  - tqdm
+  - pandas
+  - pip
+  - pip:
+      - casadi
+      - jax
