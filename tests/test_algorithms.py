@@ -16,11 +16,11 @@ NUM_TRIALS = 10
 
 params = {
     "num": {
-        "sys": models.MultiRobot(n_robots=3),
+        "sys": models.LeaderFollowerRobots(n_robots=3),
         "dt": np.ones(N_STEPS, dtype=np.float32) * DT,
     },
     "ad": {
-        "sys": ad_models.MultiRobot(n_robots=3),
+        "sys": ad_models.LeaderFollowerRobots(n_robots=3),
         "dt": jnp.ones(N_STEPS) * DT,
     },
 }
@@ -49,6 +49,154 @@ def test_numsolve():
                 atol=1e-3,
                 err_msg=f"Failure on {i_trial} : {key} trajectory",
             )
+
+
+def test_numsolve_leader_follower_vs_reference_sensing_ad():
+    leader_follower = ad_models.LeaderFollowerRobots(n_robots=3)
+    leader = ad_models.Robot()
+    followers = ad_models.ReferenceSensingRobots(n_robots=2)
+
+    for _ in range(NUM_TRIALS):
+        rand_vals = generate_ic_and_controls()
+        params["num"].update(rand_vals)
+        params["ad"].update({k: jnp.asarray(v) for k, v in rand_vals.items()})
+
+        combined_x, combined_y = ad_algorithms.numsolve_sigma(
+            leader_follower, params["ad"]["x0"], params["ad"]["u"], params["ad"]["dt"]
+        )
+        x0_leader, x0_follower = jnp.split(params["ad"]["x0"], (leader.nx,))
+        u_leader, u_follower = jnp.split(params["ad"]["u"], (leader.nu,))
+        leader_x = ad_algorithms.numsolve_sigma(
+            leader,
+            x0_leader,
+            u_leader,
+            params["ad"]["dt"],
+            without_observation=True,
+        )
+
+        follower_x, follower_y = ad_algorithms.numsolve_sigma(
+            followers,
+            x0_follower,
+            u_follower,
+            params["ad"]["dt"],
+            h_args=leader_x[0:2, :],
+        )
+        npt.assert_allclose(combined_x, jnp.vstack([leader_x, follower_x]), rtol=1e-5)
+        npt.assert_allclose(combined_y[1:, :], follower_y, rtol=1e-5)
+
+
+def test_numsolve_leader_follower_vs_reference_sensing_conventional():
+    leader_follower = models.LeaderFollowerRobots(n_robots=3)
+    leader = models.Robot()
+    followers = models.ReferenceSensingRobots(n_robots=2)
+
+    for _ in range(NUM_TRIALS):
+        rand_vals = generate_ic_and_controls()
+        params["num"].update(rand_vals)
+        params["ad"].update({k: np.asarray(v) for k, v in rand_vals.items()})
+
+        combined_x, combined_y = algorithms.numsolve_sigma(
+            leader_follower, params["ad"]["x0"], params["ad"]["u"], params["ad"]["dt"]
+        )
+        x0_leader, x0_follower = np.split(params["ad"]["x0"], (leader.nx,))
+        u_leader, u_follower = np.split(params["ad"]["u"], (leader.nu,))
+        leader_x = algorithms.numsolve_sigma(
+            leader,
+            x0_leader,
+            u_leader,
+            params["ad"]["dt"],
+            without_observation=True,
+        )
+
+        follower_x, follower_y = algorithms.numsolve_sigma(
+            followers,
+            x0_follower,
+            u_follower,
+            params["ad"]["dt"],
+            h_args=leader_x[0:2, :],
+        )
+        npt.assert_allclose(combined_x, np.vstack([leader_x, follower_x]), rtol=1e-5)
+        npt.assert_allclose(combined_y[1:, :], follower_y, rtol=1e-5)
+
+
+def test_numlog_leader_follower_vs_reference_sensing_ad():
+    leader_follower = ad_models.LeaderFollowerRobots(n_robots=3)
+    leader = ad_models.Robot()
+    followers = ad_models.ReferenceSensingRobots(n_robots=2)
+
+    for _ in range(NUM_TRIALS):
+        rand_vals = generate_ic_and_controls()
+        params["num"].update(rand_vals)
+        params["ad"].update({k: jnp.asarray(v) for k, v in rand_vals.items()})
+
+        expected = ad_algorithms.numlog(
+            leader_follower,
+            params["ad"]["x0"],
+            params["ad"]["u"],
+            params["ad"]["dt"],
+            eps=EPS,
+            perturb_axis=[3, 4, 6, 7],
+        )
+        x0_leader, x0_follower = jnp.split(params["ad"]["x0"], (leader.nx,))
+        u_leader, u_follower = jnp.split(params["ad"]["u"], (leader.nu,))
+        leader_x = ad_algorithms.numsolve_sigma(
+            leader,
+            x0_leader,
+            u_leader,
+            params["ad"]["dt"],
+            without_observation=True,
+        )
+
+        result = ad_algorithms.numlog(
+            followers,
+            x0_follower,
+            u_follower,
+            params["ad"]["dt"],
+            eps=EPS,
+            perturb_axis=[0, 1, 3, 4],  # Note leader is no longer part of the state
+            h_args=leader_x[0:2, :],
+        )
+        npt.assert_allclose(expected, result, rtol=1e-4, atol=1e-3)
+
+
+def test_numlog_leader_follower_vs_reference_sensing_conventional():
+    leader_follower = models.LeaderFollowerRobots(n_robots=3)
+    leader = models.Robot()
+    followers = models.ReferenceSensingRobots(n_robots=2)
+
+    for _ in range(NUM_TRIALS):
+        rand_vals = generate_ic_and_controls()
+        params["num"].update(rand_vals)
+        params["ad"].update({k: np.asarray(v) for k, v in rand_vals.items()})
+
+        expected = algorithms.numlog(
+            leader_follower,
+            params["ad"]["x0"],
+            params["ad"]["u"],
+            params["ad"]["dt"],
+            eps=EPS,
+            perturb_axis=[3, 4, 6, 7],
+        )
+        x0_leader, x0_follower = np.split(params["ad"]["x0"], (leader.nx,))
+        u_leader, u_follower = np.split(params["ad"]["u"], (leader.nu,))
+        leader_x = algorithms.numsolve_sigma(
+            leader,
+            x0_leader,
+            u_leader,
+            params["ad"]["dt"],
+            without_observation=True,
+        )
+
+        result = algorithms.numlog(
+            followers,
+            x0_follower,
+            u_follower,
+            params["ad"]["dt"],
+            eps=EPS,
+            perturb_axis=[0, 1, 3, 4],  # Note leader is no longer part of the state
+            h_args=leader_x[0:2, :],
+        )
+        npt.assert_allclose(expected, result, rtol=1e-4, atol=1e-3)
 
 
 def test_numlog():
