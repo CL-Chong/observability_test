@@ -10,6 +10,7 @@ from scipy import optimize
 from models.autodiff import models
 from observability_aware_control.algorithms.autodiff import numlog, numsolve_sigma
 from utils import utils
+from utils.optim_plotter import OptimPlotter
 
 params = {}
 params["eps"] = 1e-3
@@ -104,11 +105,13 @@ print("JIT compiled constraint, continuing")
 
 cfg = importlib.import_module("config.optimcfg")
 
+p = OptimPlotter(["fun"], True)
 problem = {
     "fun": numlog_objective,
     "x0": params["u_follower"].ravel(order="F"),
     "jac": jax.jacobian(numlog_objective),
     "hess": jax.hessian(numlog_objective),
+    "callback": p.update,
 }
 
 
