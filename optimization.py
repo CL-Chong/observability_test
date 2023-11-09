@@ -9,10 +9,12 @@ from scipy import optimize
 
 from models.autodiff import models
 from observability_aware_control.algorithms.autodiff import numlog, numsolve_sigma
+from utils import utils
 
-eps = 1e-3
-n_steps = 100
-dt = jnp.ones(n_steps) * 0.1
+params = {}
+params["eps"] = 1e-3
+params["n_steps"] = 100
+params["dt"] = jnp.ones(params["n_steps"]) * 0.1
 rng = np.random.default_rng(seed=114514)
 
 N_ROBOTS = 3
@@ -27,36 +29,48 @@ x0_basic = jnp.vstack(
     ]
 )
 
-x0_leader = x0_basic[:, 0]
-x0_follower = x0_basic[:, 1:].ravel(order="F")
+params["x0_leader"] = x0_basic[:, 0]
+params["x0_follower"] = x0_basic[:, 1:].ravel(order="F")
 
-u_leader = jnp.tile(jnp.array([1, 0])[..., None], (1, n_steps))
-u_follower = jnp.vstack(
+params["u_leader"] = jnp.tile(jnp.array([1, 0])[..., None], (1, params["n_steps"]))
+params["u_follower"] = jnp.vstack(
     [
-        1.0 + rng.normal(0.0, 0.01, (1, n_steps)),
-        jnp.zeros((1, n_steps)),
-        1.0 + rng.normal(0.0, 0.01, (1, n_steps)),
-        jnp.zeros((1, n_steps)),
+        1.0 + rng.normal(0.0, 0.01, (1, params["n_steps"])),
+        jnp.zeros((1, params["n_steps"])),
+        1.0 + rng.normal(0.0, 0.01, (1, params["n_steps"])),
+        jnp.zeros((1, params["n_steps"])),
     ]
 )
 
 mdl = models.ReferenceSensingRobots(n_robots=2)
 leader_x = numsolve_sigma(
-    models.Robot(), x0_leader, u_leader, dt, without_observation=True
+    models.Robot(),
+    params["x0_leader"],
+    params["u_leader"],
+    params["dt"],
+    without_observation=True,
 )[0:2, :]
 
 
 def numlog_objective(u):
-    u = u.reshape(mdl.nu, n_steps, order="F")
+    u = u.reshape(mdl.nu, params["n_steps"], order="F")
     W_o = numlog(
-        mdl, x0_follower, u, dt, eps, perturb_axis=[0, 1, 3, 4], h_args=leader_x
+        mdl,
+        params["x0_follower"],
+        u,
+        params["dt"],
+        params["eps"],
+        perturb_axis=[0, 1, 3, 4],
+        h_args=leader_x,
     )
     return jnp.linalg.cond(W_o)
 
 
 def leader_tracking_constr(u):
-    u = u.reshape(mdl.nu, n_steps, order="F")
-    x_actual = numsolve_sigma(mdl, x0_follower, u, dt, without_observation=True)
+    u = u.reshape(mdl.nu, params["n_steps"], order="F")
+    x_actual = numsolve_sigma(
+        mdl, params["x0_follower"], u, params["dt"], without_observation=True
+    )
     x_actual = x_actual.reshape(-1, mdl.n_robots, x_actual.shape[-1], order="F")[
         0:2, :, :
     ]
@@ -65,14 +79,22 @@ def leader_tracking_constr(u):
     return jnp.linalg.norm(dx, axis=0).ravel()
 
 
-x = numsolve_sigma(mdl, x0_follower, u_follower, dt, without_observation=True)
+traj_follower = numsolve_sigma(
+    mdl,
+    params["x0_follower"],
+    params["u_follower"],
+    params["dt"],
+    without_observation=True,
+)
 
-x_dst = x[:, -1].reshape(mdl.n_robots, -1)[:, 0:2]
+x_dst = traj_follower[:, -1].reshape(mdl.n_robots, -1)[:, 0:2]
 
 
 def destination_constraint(u):
-    u = u.reshape(mdl.nu, n_steps, order="F")
-    x_actual = numsolve_sigma(mdl, x0_follower, u, dt, without_observation=True)
+    u = u.reshape(mdl.nu, params["n_steps"], order="F")
+    x_actual = numsolve_sigma(
+        mdl, params["x0_follower"], u, params["dt"], without_observation=True
+    )
     x_actual = x_actual[:, -1].reshape(mdl.n_robots, -1)[:, 0:2]
 
     return (x_actual - x_dst).ravel()
@@ -84,7 +106,7 @@ cfg = importlib.import_module("config.optimcfg")
 
 problem = {
     "fun": numlog_objective,
-    "x0": u_follower.ravel(order="F"),
+    "x0": params["u_follower"].ravel(order="F"),
     "jac": jax.jacobian(numlog_objective),
     "hess": jax.hessian(numlog_objective),
 }
@@ -109,19 +131,30 @@ problem.update(
 
 soln = optimize.minimize(**problem)
 
-soln_save = {k: v for k, v in soln.items() if isinstance(v, (jnp.ndarray, int, float))}
+save = utils.flatten_dict(
+    {
+        "soln": utils.take_arrays(soln),
+        "problem": utils.take_arrays(problem),
+        "params": utils.take_arrays(params),
+    }
+)
 (pathlib.Path.cwd() / "data").mkdir(exist_ok=True)
-jnp.savez("data/optimization_results.npz", **soln_save)
+jnp.savez("data/optimization_results.npz", **save)
 
 
-u_opt = jnp.reshape(soln.x, (-1, n_steps), order="F")
-
+u_opt = jnp.reshape(soln.x, (-1, params["n_steps"]), order="F")
+traj_follower_opt = numsolve_sigma(
+    mdl,
+    params["x0_follower"],
+    u_opt,
+    params["dt"],
+    h_args=leader_x,
+    without_observation=True,
+)
 _, ax = plt.subplots()
-for u, style in zip([u_opt, u_follower], [":", "--"]):
-    x, y = numsolve_sigma(mdl, x0_follower, u, dt, h_args=leader_x)
-
-    x = jnp.reshape(x, (models.Robot.NX, mdl.n_robots, -1), order="F")
+for traj, style in zip([traj_follower, traj_follower_opt], [":", "--"]):
+    traj = jnp.reshape(traj, (models.Robot.NX, mdl.n_robots, -1), order="F")
     for i_robot in range(mdl.n_robots):
-        ax.plot(x[0, i_robot, :].ravel(), x[1, i_robot, :].ravel(), style)
+        ax.plot(traj[0, i_robot, :].ravel(), traj[1, i_robot, :].ravel(), style)
 
 plt.show()
