@@ -7,5 +7,5 @@ OPTIONS = {
     "verbose": 2,
     "xtol": 1e-4,
     "gtol": 1e-4,
-    "maxiter": 20,
+    "maxiter": 50,
 }
