@@ -11,6 +11,7 @@ from scipy import optimize
 from models.autodiff import models
 from observability_aware_control.algorithms.autodiff import numlog, numsolve_sigma
 from utils import utils
+from utils.minimize_problem import MinimizeProblem
 from utils.optim_plotter import OptimPlotter
 
 
@@ -140,33 +141,28 @@ def main():
         raise RuntimeError("invalid valid constraint type")
 
     p = OptimPlotter(["fun"], True, specs={"fun": {"ylabel": "Objective Value"}})
-    problem = {
-        "fun": numlog_objective,
-        "x0": params["u_follower"].ravel(order="F"),
-        "jac": jax.jacobian(numlog_objective),
-        "hess": jax.hessian(numlog_objective),
-        "callback": p.update,
-    }
-
-    problem.update(
-        {
-            "bounds": optimize.Bounds(
-                np.tile(np.asarray(cfg.LB), len(problem["x0"]) // len(cfg.LB)),
-                np.tile(np.asarray(cfg.UB), len(problem["x0"]) // len(cfg.UB)),
-            ),
-            "method": cfg.METHOD,
-            "options": cfg.OPTIONS,
-            "constraints": optimize.NonlinearConstraint(
-                constr,
-                lb=np.zeros(2),
-                ub=np.ones(2) * 0.1,
-                jac=jax.jacobian(constr),
-            ),
-        }
+    # Define functional parameters for the optimization problem
+    problem = MinimizeProblem(numlog_objective, params["u_follower"].ravel(order="F"))
+    problem.bounds = optimize.Bounds(
+        np.tile(np.asarray(cfg.LB), len(problem.x0) // len(cfg.LB)),
+        np.tile(np.asarray(cfg.UB), len(problem.x0) // len(cfg.UB)),
     )
-    if args.maxiter > 0:
-        problem["options"]["maxiter"] = args.maxiter
+    problem.jac = jax.jacobian(numlog_objective)
+    problem.callback = p.update
+    problem.constraints = optimize.NonlinearConstraint(
+        constr,
+        lb=np.zeros(2),
+        ub=np.ones(2) * 0.1,
+        jac=jax.jacobian(constr),
+    )
+    problem.method = cfg.METHOD
+    problem.options = cfg.OPTIONS
 
+    if args.maxiter > 0:
+        problem.options["maxiter"] = args.maxiter
+
+    # Solve!
+    problem = vars(problem)
     if args.use_global_optimizer:
         soln = optimize.basinhopping(
             problem.pop("fun"), problem.pop("x0"), minimizer_kwargs=problem
