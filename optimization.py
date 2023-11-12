@@ -139,7 +139,7 @@ def main():
     else:
         raise RuntimeError("invalid valid constraint type")
 
-    p = OptimPlotter(["fun"], True)
+    p = OptimPlotter(["fun"], True, specs={"fun": {"ylabel": "Objective Value"}})
     problem = {
         "fun": numlog_objective,
         "x0": params["u_follower"].ravel(order="F"),
@@ -175,6 +175,7 @@ def main():
         soln = optimize.minimize(**problem)
 
     save = save_data(params, problem, soln)
+    p.save_plots("data")
     jnp.savez("data/optimization_results.npz", **save)
 
     u_opt = jnp.reshape(soln.x, (-1, params["n_steps"]), order="F")

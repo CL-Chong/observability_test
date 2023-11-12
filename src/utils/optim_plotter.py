@@ -1,10 +1,31 @@
+import pathlib
 import time
 
 import matplotlib.pyplot as plt
 
 
 class OptimPlotter:
-    def __init__(self, keys, profile_plot=False):
+    def __init__(self, keys, profile_plot=False, specs=None):
+        if specs is not None:
+            self._specs = specs
+            spec_keys = {it for it in specs.keys()}
+            if spec_keys.difference(keys):
+                raise ValueError("")
+        else:
+            self._specs = {}
+        self.setup_plots(keys)
+
+        self._retval = 0
+
+        self._fig.canvas.mpl_connect("close_event", lambda _: self.set_retval(1))
+
+        self._profile_plot = profile_plot
+        if profile_plot:
+            self.setup_profile_plot()
+
+        self._fig.tight_layout()
+
+    def setup_plots(self, keys):
         n_plots = len(keys)
         self._fig, self._ax = plt.subplots(n_plots, figsize=(8, 3 * n_plots))
         self._data = {}
@@ -14,24 +35,23 @@ class OptimPlotter:
         except TypeError:
             self._ax = [self._ax]
         for ax, k in zip(self._ax, self._keys):
-            ax.set_xlabel(k)
+            try:
+                ax.set_ylabel(self._specs[k]["ylabel"])
+            except KeyError:
+                ax.set_ylabel(k)
+            ax.set_xlabel("Iterations")
             (ln,) = ax.plot([], [])
             self._data[k] = {"x": [], "y": [], "line": ln}
 
-        self._retval = 0
-
-        self._fig.canvas.mpl_connect("close_event", lambda _: self.set_retval(1))
-
-        self._profile_plot = profile_plot
-        if profile_plot:
-            self._p_fig, self._p_ax = plt.subplots()
-            self._p_ax.set_xlabel("Iterations")
-            self._p_ax.set_ylabel("Time (s) per iteration")
-            self._p_fig.canvas.mpl_connect("close_event", lambda _: self.set_retval(1))
-            self._p_data = {"x": [], "y": []}
-            (self._p_line,) = self._p_ax.plot([], [])
-            self._tic = -1.0
-        plt.tight_layout()
+    def setup_profile_plot(self):
+        self._p_fig, self._p_ax = plt.subplots()
+        self._p_ax.set_xlabel("Iterations")
+        self._p_ax.set_ylabel("Time (s) per iteration")
+        self._p_fig.canvas.mpl_connect("close_event", lambda _: self.set_retval(1))
+        self._p_data = {"x": [], "y": []}
+        (self._p_line,) = self._p_ax.plot([], [])
+        self._tic = -1.0
+        self._p_fig.tight_layout()
 
     def update(self, _, info):
         if self._profile_plot:
@@ -68,3 +88,8 @@ class OptimPlotter:
         self._p_data["x"].append(info["nit"])
         self._p_data["y"].append(dt)
         self._p_line.set_data(self._p_data["x"], self._p_data["y"])
+
+    def save_plots(self, prefix):
+        prefix = pathlib.Path(prefix)
+        self._fig.savefig(prefix / "optimization_results.png")
+        self._p_fig.savefig(prefix / "optimization_performance.png")
