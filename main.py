@@ -1,23 +1,25 @@
-import numpy as np
-import casadi as cs
 import math
 import pathlib
-import pandas as pd
+
+import casadi as cs
 import joblib
+import numpy as np
+import pandas as pd
 from tqdm import tqdm
 
+from models import autodiff, symbolic
+
 # from observability_test_small import compute_gramian
-from observability_aware_control.algorithms import numlog
+from observability_aware_control.algorithms.autodiff import numlog
 from observability_aware_control.algorithms.symbolic import stlog
-from models import models
 
 
 def main():
     dt = 0.001
     eps = 1e-4
     n_steps_arr = [250, 500, 750, 1000]
-    num_sys = models.LeaderFollowerRobots(n_robots=3, is_symbolic=False)
-    sym_sys = models.LeaderFollowerRobots(n_robots=3, is_symbolic=True)
+    num_sys = autodiff.models.LeaderFollowerRobots(n_robots=3)
+    sym_sys = symbolic.models.LeaderFollowerRobots(n_robots=3)
     n_samples = 1000
     max_order = 6
 
@@ -93,7 +95,7 @@ def log_comparison(
     num_sys,
     sym_sys,
 ):
-    numlog_x = numlog(num_sys, x0, u, dt, eps)
+    numlog_x = numlog(num_sys, x0, u, dt, eps, axis=1)
     tr_num = np.trace(numlog_x)
     sing_max_num = np.linalg.norm(numlog_x, 2)
     sing_min_num = np.linalg.norm(numlog_x, -2)
@@ -104,7 +106,7 @@ def log_comparison(
     sing_max_st = np.linalg.norm(stlog_x, 2)
     sing_min_st = np.linalg.norm(stlog_x, -2)
 
-    err_mat = numlog_x - stlog_x
+    err_mat = numlog_x - np.asarray(stlog_x)
     err_mae = np.linalg.norm(err_mat, 1) / (sym_sys.nx**2)
     err_rms = np.linalg.norm(err_mat, 2) / (sym_sys.nx)
 

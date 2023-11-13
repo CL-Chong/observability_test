@@ -1,11 +1,10 @@
 import jax.numpy as jnp
 import numpy as np
 import numpy.testing as npt
+from internal import algorithms, models
 
 import models.autodiff as ad_models
 import observability_aware_control.algorithms.autodiff as ad_algorithms
-from models import models
-from observability_aware_control import algorithms
 
 DT = 0.01
 EPS = 1e-2
