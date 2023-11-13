@@ -84,6 +84,7 @@ def main():
         params["u_leader"],
         params["dt"],
         without_observation=True,
+        axis=1,
     )[0:2, :]
 
     def numlog_objective(u):
@@ -96,13 +97,19 @@ def main():
             params["eps"],
             perturb_axis=[0, 1, 3, 4],
             h_args=leader_x,
+            axis=1,
         )
         return jnp.linalg.cond(W_o)
 
     def leader_tracking_constr(u):
         u = u.reshape(mdl.nu, params["n_steps"], order="F")
         x_actual = numsolve_sigma(
-            mdl, params["x0_follower"], u, params["dt"], without_observation=True
+            mdl,
+            params["x0_follower"],
+            u,
+            params["dt"],
+            without_observation=True,
+            axis=1,
         )
         x_actual = x_actual.reshape(-1, mdl.n_robots, x_actual.shape[-1], order="F")[
             0:2, :, :
@@ -117,6 +124,7 @@ def main():
         params["u_follower"],
         params["dt"],
         without_observation=True,
+        axis=1,
     )
 
     x_dst = traj_follower[:, -1].reshape(mdl.n_robots, -1)[:, 0:2]
@@ -124,7 +132,12 @@ def main():
     def destination_constr(u):
         u = u.reshape(mdl.nu, params["n_steps"], order="F")
         x_actual = numsolve_sigma(
-            mdl, params["x0_follower"], u, params["dt"], without_observation=True
+            mdl,
+            params["x0_follower"],
+            u,
+            params["dt"],
+            without_observation=True,
+            axis=1,
         )
         x_actual = x_actual[:, -1].reshape(mdl.n_robots, -1)[:, 0:2]
 
@@ -182,6 +195,7 @@ def main():
         params["dt"],
         h_args=leader_x,
         without_observation=True,
+        axis=1,
     )
     _, ax = plt.subplots()
     for traj, style in zip([traj_follower, traj_follower_opt], [":", "--"]):

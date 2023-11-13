@@ -40,7 +40,7 @@ def test_numsolve():
         params["ad"].update({k: jnp.asarray(v) for k, v in rand_vals.items()})
 
         num_results = algorithms.numsolve_sigma(**params["num"])
-        ad_results = ad_algorithms.numsolve_sigma(**params["ad"])
+        ad_results = ad_algorithms.numsolve_sigma(**params["ad"], axis=1)
         for lhs, rhs, key in zip(num_results, ad_results, ("state", "observation")):
             npt.assert_allclose(
                 lhs,
@@ -62,7 +62,11 @@ def test_numsolve_leader_follower_vs_reference_sensing_ad():
         params["ad"].update({k: jnp.asarray(v) for k, v in rand_vals.items()})
 
         combined_x, combined_y = ad_algorithms.numsolve_sigma(
-            leader_follower, params["ad"]["x0"], params["ad"]["u"], params["ad"]["dt"]
+            leader_follower,
+            params["ad"]["x0"],
+            params["ad"]["u"],
+            params["ad"]["dt"],
+            axis=1,
         )
         x0_leader, x0_follower = jnp.split(params["ad"]["x0"], (leader.nx,))
         u_leader, u_follower = jnp.split(params["ad"]["u"], (leader.nu,))
@@ -72,6 +76,7 @@ def test_numsolve_leader_follower_vs_reference_sensing_ad():
             u_leader,
             params["ad"]["dt"],
             without_observation=True,
+            axis=1,
         )
 
         follower_x, follower_y = ad_algorithms.numsolve_sigma(
@@ -80,6 +85,7 @@ def test_numsolve_leader_follower_vs_reference_sensing_ad():
             u_follower,
             params["ad"]["dt"],
             h_args=leader_x[0:2, :],
+            axis=1,
         )
         npt.assert_allclose(combined_x, jnp.vstack([leader_x, follower_x]), rtol=1e-5)
         npt.assert_allclose(combined_y[1:, :], follower_y, rtol=1e-5)
@@ -136,6 +142,7 @@ def test_numlog_leader_follower_vs_reference_sensing_ad():
             params["ad"]["dt"],
             eps=EPS,
             perturb_axis=[3, 4, 6, 7],
+            axis=1,
         )
         x0_leader, x0_follower = jnp.split(params["ad"]["x0"], (leader.nx,))
         u_leader, u_follower = jnp.split(params["ad"]["u"], (leader.nu,))
@@ -145,6 +152,7 @@ def test_numlog_leader_follower_vs_reference_sensing_ad():
             u_leader,
             params["ad"]["dt"],
             without_observation=True,
+            axis=1,
         )
 
         result = ad_algorithms.numlog(
@@ -155,6 +163,7 @@ def test_numlog_leader_follower_vs_reference_sensing_ad():
             eps=EPS,
             perturb_axis=[0, 1, 3, 4],  # Note leader is no longer part of the state
             h_args=leader_x[0:2, :],
+            axis=1,
         )
         npt.assert_allclose(expected, result, rtol=1e-4, atol=1e-3)
 
@@ -215,7 +224,7 @@ def test_numlog():
             **params["num"], eps=np.float32(EPS), perturb_axis=axes
         )
         ad_results = ad_algorithms.numlog(
-            **params["ad"], eps=np.float32(EPS), perturb_axis=axes
+            **params["ad"], eps=np.float32(EPS), perturb_axis=axes, axis=1
         )
         npt.assert_allclose(
             num_results,

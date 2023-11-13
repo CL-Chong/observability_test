@@ -7,8 +7,17 @@ NX = 3
 NU = 2
 
 
-@functools.partial(jax.jit, static_argnames=("sys", "without_observation"))
-def numsolve_sigma(sys, x0, u, dt, f_args=None, h_args=None, without_observation=False):
+@functools.partial(jax.jit, static_argnames=("sys", "without_observation", "axis"))
+def numsolve_sigma(
+    sys,
+    x0,
+    u,
+    dt,
+    axis=None,
+    f_args=None,
+    h_args=None,
+    without_observation=False,
+):
     """Run forward simulation of a dynamical system
 
     Details
@@ -26,6 +35,8 @@ def numsolve_sigma(sys, x0, u, dt, f_args=None, h_args=None, without_observation
         A sys.nu-by-len(dt) array of control inputs
     dt : ArrayLike
         An array of time steps
+    axis: int
+        Axis that defines each vector-valued input
     f_args : ArrayLike, optional
         Additional (time-dependent) vector-valued inputs for sys.dynamics specified by a
         *-by-len(dt) array, by default None
@@ -42,62 +53,64 @@ def numsolve_sigma(sys, x0, u, dt, f_args=None, h_args=None, without_observation
         The state and optionally observation trajectory
     """
 
+    def _process_in_axis(var):
+        return jnp.moveaxis(var, axis, 0) if axis is not None else var
+
+    def _process_out_axis(var):
+        return jnp.moveaxis(var, 0, axis) if axis is not None else var
+
     def _update(x_op, tup):
-        u = tup[: sys.nu]
-        dt = tup[sys.nu]
-        if f_args is not None:
-            param = tup[sys.nu + 1 :]
-            dx = sys.dynamics(x_op, u, param)
-        else:
-            dx = sys.dynamics(x_op, u)
+        dt, *rem = tup
+        dx = sys.dynamics(x_op, *rem)
         return x_op + dt * dx, x_op
 
+    u = _process_in_axis(u)
     if f_args is None:
-        xs = jnp.vstack([u, dt]).T
+        xs = (dt, u)
     else:
-        f_args = jnp.asarray(f_args)
-        xs = jnp.vstack([u, dt, f_args]).T
+        xs = (dt, u, _process_in_axis(f_args))
 
     _, x = jax.lax.scan(_update, init=x0, xs=xs)
 
     if without_observation:
-        return x.T
+        return _process_out_axis(x)
 
     if h_args is None:
-        y = sys.observation(x.T)
+        y = sys.observation(x)
     else:
-        h_args = jnp.asarray(h_args)
-        y = sys.observation(x.T, h_args)
+        y = sys.observation(x, _process_in_axis(h_args))
 
-    return x.T, y
-
-
-@functools.partial(jax.jit, static_argnames=("sys",))
-@functools.partial(jax.vmap, in_axes=(None, 1, 1, None, None, None, None), out_axes=2)
-def _perturb(sys, x0_plus, x0_minus, u, dts, f_args, h_args):
-    _, yi_plus = numsolve_sigma(sys, x0_plus, u, dts, f_args, h_args)
-    _, yi_minus = numsolve_sigma(sys, x0_minus, u, dts, f_args, h_args)
-    return yi_plus - yi_minus
+    return _process_out_axis(x), _process_out_axis(y)
 
 
-@functools.partial(jax.jit, static_argnames=("sys", "eps"))
-def _numlog(sys, x0, u, dt, eps, perturb_axis, f_args, h_args):
+@functools.partial(jax.jit, static_argnames=("sys", "eps", "axis"))
+def _numlog(sys, x0, u, dt, eps, axis, perturb_axis, f_args, h_args):
     if perturb_axis is None:
         perturb_axis = jnp.arange(0, sys.nx)
     perturb_axis = jnp.asarray(perturb_axis)
 
-    perturb_bases = jnp.eye(x0.size)[:, perturb_axis]
-    x0_plus = x0[..., None] + eps * perturb_bases
-    x0_minus = x0[..., None] - eps * perturb_bases
-    y_all = _perturb(sys, x0_plus, x0_minus, u, dt, f_args, h_args) / (2.0 * eps)
+    @functools.partial(jax.vmap, out_axes=2)
+    def _perturb(x0_plus, x0_minus):
+        _, yi_plus = numsolve_sigma(sys, x0_plus, u, dt, axis, f_args, h_args)
+        _, yi_minus = numsolve_sigma(sys, x0_minus, u, dt, axis, f_args, h_args)
+        return yi_plus - yi_minus
+
+    perturb_bases = jnp.eye(x0.size)[perturb_axis]
+    x0_plus = x0 + eps * perturb_bases
+    x0_minus = x0 - eps * perturb_bases
+    y_all = _perturb(x0_plus, x0_minus) / (2.0 * eps)
 
     coord_vec = jnp.arange(0, perturb_axis.size)
-    [xm, ym] = jnp.meshgrid(coord_vec, coord_vec)
+    xm, ym = jnp.meshgrid(coord_vec, coord_vec)
 
-    return jnp.sum(dt[:, None, None] * y_all[:, :, xm] * y_all[:, :, ym], axis=(0, 1))
+    dt = dt[..., None, None, None]
+    if axis is not None:
+        dt = jnp.moveaxis(dt, 0, axis)
+
+    return jnp.sum(dt * y_all[:, :, xm] * y_all[:, :, ym], axis=(0, 1))
 
 
-def numlog(sys, x0, u, dt, eps, perturb_axis=None, f_args=None, h_args=None):
+def numlog(sys, x0, u, dt, eps, axis=None, perturb_axis=None, f_args=None, h_args=None):
     x0 = jnp.asarray(x0)
     u = jnp.asarray(u)
     dt = jnp.asarray(dt)
@@ -111,4 +124,4 @@ def numlog(sys, x0, u, dt, eps, perturb_axis=None, f_args=None, h_args=None):
         )
     if jnp.any(dt <= 0):
         raise ValueError("Discrete time-step is not positive.")
-    return _numlog(sys, x0, u, dt, eps, perturb_axis, f_args, h_args)
+    return _numlog(sys, x0, u, dt, eps, axis, perturb_axis, f_args, h_args)
