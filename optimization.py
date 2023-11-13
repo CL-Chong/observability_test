@@ -8,7 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import optimize
 
-from models.autodiff import models
+from models.autodiff import multi_planar_robot, planar_robot
 from observability_aware_control.algorithms.autodiff import numlog, numsolve_sigma
 from utils import utils
 from utils.minimize_problem import MinimizeProblem
@@ -77,9 +77,9 @@ def main():
         ]
     )
 
-    mdl = models.ReferenceSensingRobots(n_robots=2)
+    mdl = multi_planar_robot.ReferenceSensingRobots(n_robots=2)
     leader_x = numsolve_sigma(
-        models.Robot(),
+        planar_robot.PlanarRobot(),
         params["x0_leader"],
         params["u_leader"],
         params["dt"],
@@ -199,7 +199,7 @@ def main():
     )
     _, ax = plt.subplots()
     for traj, style in zip([traj_follower, traj_follower_opt], [":", "--"]):
-        traj = jnp.reshape(traj, (models.Robot.NX, mdl.n_robots, -1), order="F")
+        traj = jnp.reshape(traj, (planar_robot.NX, mdl.n_robots, -1), order="F")
         for i_robot in range(mdl.n_robots):
             ax.plot(traj[0, i_robot, :].ravel(), traj[1, i_robot, :].ravel(), style)
 

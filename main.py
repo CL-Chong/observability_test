@@ -18,8 +18,8 @@ def main():
     dt = 0.001
     eps = 1e-4
     n_steps_arr = [250, 500, 750, 1000]
-    num_sys = autodiff.models.LeaderFollowerRobots(n_robots=3)
-    sym_sys = symbolic.models.LeaderFollowerRobots(n_robots=3)
+    num_sys = autodiff.multi_planar_robot.LeaderFollowerRobots(n_robots=3)
+    sym_sys = symbolic.multi_planar_robot.LeaderFollowerRobots(n_robots=3)
     n_samples = 1000
     max_order = 6
 

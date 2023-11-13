@@ -19,7 +19,7 @@ params = {
         "dt": np.ones(N_STEPS, dtype=np.float32) * DT,
     },
     "ad": {
-        "sys": ad_models.LeaderFollowerRobots(n_robots=3),
+        "sys": ad_models.multi_planar_robot.LeaderFollowerRobots(n_robots=3),
         "dt": jnp.ones(N_STEPS) * DT,
     },
 }
@@ -51,9 +51,9 @@ def test_numsolve():
 
 
 def test_numsolve_leader_follower_vs_reference_sensing_ad():
-    leader_follower = ad_models.LeaderFollowerRobots(n_robots=3)
-    leader = ad_models.Robot()
-    followers = ad_models.ReferenceSensingRobots(n_robots=2)
+    leader_follower = ad_models.multi_planar_robot.LeaderFollowerRobots(n_robots=3)
+    leader = ad_models.planar_robot.PlanarRobot()
+    followers = ad_models.multi_planar_robot.ReferenceSensingRobots(n_robots=2)
 
     for _ in range(NUM_TRIALS):
         rand_vals = generate_ic_and_controls()
@@ -125,9 +125,9 @@ def test_numsolve_leader_follower_vs_reference_sensing_conventional():
 
 
 def test_numlog_leader_follower_vs_reference_sensing_ad():
-    leader_follower = ad_models.LeaderFollowerRobots(n_robots=3)
-    leader = ad_models.Robot()
-    followers = ad_models.ReferenceSensingRobots(n_robots=2)
+    leader_follower = ad_models.multi_planar_robot.LeaderFollowerRobots(n_robots=3)
+    leader = ad_models.planar_robot.PlanarRobot()
+    followers = ad_models.multi_planar_robot.ReferenceSensingRobots(n_robots=2)
 
     for _ in range(NUM_TRIALS):
         rand_vals = generate_ic_and_controls()
