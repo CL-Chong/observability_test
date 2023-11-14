@@ -3,8 +3,8 @@ import numpy as np
 import numpy.testing as npt
 from internal import algorithms, models
 
-import models.autodiff as ad_models
 import observability_aware_control.algorithms.autodiff as ad_algorithms
+import observability_aware_control.models.autodiff as ad_models
 
 DT = 0.01
 EPS = 1e-2

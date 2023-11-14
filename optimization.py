@@ -8,11 +8,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import optimize
 
-from models.autodiff import multi_planar_robot, planar_robot
+from observability_aware_control import utils
 from observability_aware_control.algorithms.autodiff import numlog, numsolve_sigma
-from utils import utils
-from utils.minimize_problem import MinimizeProblem
-from utils.optim_plotter import OptimPlotter
+from observability_aware_control.models.autodiff import multi_planar_robot, planar_robot
 
 
 def parse_cli():
@@ -153,9 +151,13 @@ def main():
     else:
         raise RuntimeError("invalid valid constraint type")
 
-    p = OptimPlotter(["fun"], True, specs={"fun": {"ylabel": "Objective Value"}})
+    p = utils.optim_plotter.OptimPlotter(
+        ["fun"], True, specs={"fun": {"ylabel": "Objective Value"}}
+    )
     # Define functional parameters for the optimization problem
-    problem = MinimizeProblem(numlog_objective, params["u_follower"].ravel(order="F"))
+    problem = utils.minimize_problem.MinimizeProblem(
+        numlog_objective, params["u_follower"].ravel(order="F")
+    )
     problem.bounds = optimize.Bounds(
         np.tile(np.asarray(cfg.LB), len(problem.x0) // len(cfg.LB)),
         np.tile(np.asarray(cfg.UB), len(problem.x0) // len(cfg.UB)),
