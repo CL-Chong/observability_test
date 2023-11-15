@@ -27,10 +27,10 @@
       }
     },
     {
-      "name": "Derivatives",
+      "name": "Standard Debug",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceFolder}/derivatives.py",
+      "program": "${file}",
       "console": "integratedTerminal",
       "justMyCode": true,
       "env": {
