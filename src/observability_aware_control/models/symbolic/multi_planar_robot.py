@@ -56,15 +56,16 @@ class ReferenceSensingRobots(MultiRobot):
 class LeaderFollowerRobots(MultiRobot):
     @property
     def ny(self):
-        return self._n_robots + (self._n_robots - 1) * planar_robot.NY
+        return self._n_robots + (self._n_robots - 1) * planar_robot.NY + 2
 
     def observation(self, x):
         x = x.reshape((planar_robot.NX, self._n_robots))
         h_headings = x[2, :].T
         h_bearings = cs.MX.zeros((planar_robot.NY, self._n_robots - 1))
+        pos_ref = x[0:2, 0]
         for idx in range(1, self._n_robots):
-            h_bearings[:, idx - 1] = planar_robot.observation(x[:, idx], x[0:2, 0])
+            h_bearings[:, idx - 1] = planar_robot.observation(x[:, idx], pos_ref)
 
         h_bearings = cs.reshape(h_bearings, (-1, 1))
 
-        return cs.vertcat(h_headings, h_bearings)
+        return cs.vertcat(pos_ref, h_headings, h_bearings)
