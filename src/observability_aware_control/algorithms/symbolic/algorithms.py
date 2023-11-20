@@ -15,6 +15,8 @@ class STLOG:
         self._nu = mdl.nu
         self._stlog = cs.MX.zeros(mdl.nx, mdl.nx)
         self._order = order
+        self._NX = mdl.NX
+        self._NU = mdl.NU
 
         self._symbols = {
             "x": cs.MX.sym("x", mdl.nx),
@@ -95,15 +97,38 @@ class STLOG:
 
         return inner_objective
 
-    def make_problem(self, x0, u0, t, u_lb, u_ub):
+    def make_problem(self, x0, u0, t, u_lb, u_ub, log_scale=False, omit_leader=False):
+        # log_scale still in testing
         if max(abs(np.concatenate((u0, u_lb, u_ub)))) * t > 1.0:
             print(
                 f"Warning: max(|u*t|) = {max(abs(np.concatenate((u0,u_lb,u_ub))))*t} > 1. STLOG convergence is not guaranteed."
             )
-        problem = MinimizeProblem(self.objective(x=x0, t=t), u0)
+        obj_fun_primitive = self.objective(x=x0, t=t)
+        if omit_leader:
+
+            def obj_fun_omit_leader(u_follower):
+                return obj_fun_primitive(np.concatenate((u0[0 : self._NU], u_follower)))
+
+            obj_fun = obj_fun_omit_leader
+            u0 = u0[self._NU :]
+            u_lb = u_lb[self._NU :]
+            u_ub = u_ub[self._NU :]
+        else:
+            obj_fun = obj_fun_primitive
+
+        if log_scale:
+            problem = MinimizeProblem(lambda arg: -np.log(1e-4 - obj_fun(arg)), u0)
+        else:
+            problem = MinimizeProblem(obj_fun, u0)
         problem.bounds = optimize.Bounds(u_lb, u_ub)
         problem.method = "trust-constr"
-        problem.options = {"gtol": 1e-10, "disp": True, "verbose": 2}
+        problem.options = {
+            "xtol": 1e-3,
+            "gtol": 1e-8,
+            "disp": False,
+            "verbose": 0,
+            "maxiter": 100,
+        }
         return problem
 
 
