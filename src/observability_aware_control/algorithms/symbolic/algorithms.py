@@ -13,7 +13,6 @@ class STLOG:
     def __init__(self, mdl, order, is_psd=False):
         self._nx = mdl.nx
         self._nu = mdl.nu
-        self._stlog = cs.MX.zeros(mdl.nx, mdl.nx)
         self._order = order
         self._NX = mdl.NX
         self._NU = mdl.NU
@@ -24,6 +23,8 @@ class STLOG:
             "t": cs.MX.sym("t"),
         }
 
+        # calculate self._stlog
+        self._stlog = cs.MX.zeros(mdl.nx, mdl.nx)
         # calculate L_f^k h and D L_f^k h for k = 0, ..., order
         lh_store = []
         lh_store.append(mdl.observation(self._symbols["x"]))
@@ -61,39 +62,46 @@ class STLOG:
                         dlh_store[l - k],
                     )
 
+        # self._fun computes STLOG as a cs function object, which can be called with self._fun()(x,u,t)
+        self._fun = cs.Function(
+            "stlog_fun",
+            [self._symbols["x"], self._symbols["u"], self._symbols["t"]],
+            [self._stlog],
+        )
+
     @property
     def order(self):
         return self._order
 
     # self.fun outputs STLOG as a cs function object, which can be called with self.fun()(x,u,t)
-    def fun(self):
-        return cs.Function(
-            "stlog_fun",
-            [self._symbols["x"], self._symbols["u"], self._symbols["t"]],
-            [self._stlog],
-        )
+    # def fun(self):
+    #     return cs.Function(
+    #         "stlog_fun",
+    #         [self._symbols["x"], self._symbols["u"], self._symbols["t"]],
+    #         [self._stlog],
+    #     )
 
     # self.objective outputs -(min singular value) of stlog.
     def objective(self, x=None, t=None):
         if x is None and t is None:
 
             def inner_objective(x1, u1, t1):
-                return -1 * (np.linalg.norm(self.fun()(x1, u1, t1), -2))
+                return -1 * (np.linalg.norm(self._fun(x1, u1, t1), -2))
 
         elif x is None:
 
             def inner_objective(x1, u1):
-                return -1 * (np.linalg.norm(self.fun()(x1, u1, t), -2))
+                return -1 * (np.linalg.norm(self._fun(x1, u1, t), -2))
 
         elif t is None:
 
             def inner_objective(u1, t1):
-                return -1 * (np.linalg.norm(self.fun()(x, u1, t1), -2))
+                return -1 * (np.linalg.norm(self._fun(x, u1, t1), -2))
 
         else:
 
             def inner_objective(u1):
-                return -1 * (np.linalg.norm(self.fun()(x, u1, t), -2))
+                return -1 * (np.linalg.norm(self._fun(x, u1, t), -2))
 
         return inner_objective
 
