@@ -20,17 +20,19 @@ def test(anim=False):
     sym_mdl = symmodels.LeaderFollowerRobots(3)
     num_mdl = nummodels.LeaderFollowerRobots(3)
     stlog_cls = STLOG(sym_mdl, order)
-    dt = 0.01
-    dt_stlog = 0.20
-    n_steps = 10000
+    dt = 0.05
+    dt_stlog = 0.2
+    n_steps = 1900
 
-    x0 = np.array([0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, -1.0, 0.0])
-    rot_magnitude = 1
+    x0 = np.array(
+        [0.5, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, -5.0, 0.0],
+    )
+    rot_magnitude = 2
     thrust = 4
     # u0 = np.concatenate(
     #     ([2.0, 0.0], rng.uniform(0, magnitude, (sym_mdl.nu - 2,)))
     # )
-    u_leader = [2.0, 0.0]
+    u_leader = [1.0, 0.0]
     u0 = np.concatenate((u_leader, [4.0, -1.0, 4.0, 1.0]))
     u_lb = np.concatenate((u_leader, [0.0, -rot_magnitude, 0.0, -rot_magnitude]))
     u_ub = np.concatenate((u_leader, [thrust, rot_magnitude, thrust, rot_magnitude]))
@@ -41,7 +43,6 @@ def test(anim=False):
     u[:, 0] = u0
 
     if anim:
-        figs = {}
         anim, anim_ax = plt.subplots()
         plt.ioff()
 
@@ -77,6 +78,7 @@ def test(anim=False):
             plt.pause(0.01)
 
     def plotting_simple(model, x):
+        figs = {}
         figs[0], ax = plt.subplots()
         ax.plot(x[0, :], x[1, :], "C9")
         ax.set_xlabel("X (m)")
