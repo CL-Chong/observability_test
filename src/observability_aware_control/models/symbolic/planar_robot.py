@@ -23,10 +23,10 @@ def observation(x, pos_ref):
     c = cs.cos(psi)
     s = cs.sin(psi)
 
-    p_diff = x[0:2] - pos_ref
+    p_diff = pos_ref - x[0:2]
 
-    hx = c * p_diff[0] - s * p_diff[1]
-    hy = s * p_diff[0] + c * p_diff[1]
+    hx = c * p_diff[0] + s * p_diff[1]
+    hy = -s * p_diff[0] + c * p_diff[1]
     return cs.atan2(hy, hx)
 
 

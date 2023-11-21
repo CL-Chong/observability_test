@@ -14,7 +14,7 @@ Method = Union[
     Literal["TNC"],
     Literal["COBYLA"],
     Literal["SLSQP"],
-    Literal["trust-const"],
+    Literal["trust-constr"],
     Literal["dogleg"],
     Literal["trust-ncg"],
     Literal["trust-exact"],

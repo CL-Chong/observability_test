@@ -56,13 +56,18 @@ class LeaderFollowerRobots(MultiRobot):
     def ny(self):
         return self._n_robots + (self._n_robots - 1) * 2
 
-    @functools.partial(jax.jit, static_argnames=("self",))
-    @functools.partial(jax.vmap, in_axes=(None, 0))
     def observation(self, x):
-        x = x.reshape(self._n_robots, planar_robot.NX)
+        if x.ndim > 1:
+            return jax.vmap(self._observation, in_axes=(None, 0))(x)
+        else:
+            return self._observation(x)
+
+    @functools.partial(jax.jit, static_argnames=("self",))
+    def _observation(self, x):
+        x = x.reshape((self._n_robots, planar_robot.NX))
         h_headings = x[:, 2].ravel()
         pos_ref = x[0, 0:2]
 
         h_bearings = super().observation(x[1:, :], pos_ref)
 
-        return jnp.concatenate([h_headings, h_bearings])
+        return jnp.concatenate([pos_ref, h_headings, h_bearings])

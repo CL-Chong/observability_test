@@ -28,10 +28,10 @@ def observation(x, pos_ref):
     c = jnp.cos(psi)
     s = jnp.sin(psi)
 
-    p_diff = x[0:2] - pos_ref
+    p_diff = pos_ref - x[0:2]
 
-    hx = c * p_diff[0] - s * p_diff[1]
-    hy = s * p_diff[0] + c * p_diff[1]
+    hx = c * p_diff[0] + s * p_diff[1]
+    hy = -s * p_diff[0] + c * p_diff[1]
     return jnp.arctan2(hy, hx)
 
 
