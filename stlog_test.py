@@ -50,6 +50,7 @@ def test(anim=False):
             idx: {"line": anim_ax.plot([], [])[0]} for idx in range(sym_mdl.n_robots)
         }
 
+    optim_hist = {}
     for i in tqdm.tqdm(range(1, n_steps)):
         problem = stlog_cls.make_problem(
             x[:, i - 1],
@@ -61,8 +62,18 @@ def test(anim=False):
             omit_leader=True,
         )
 
-        u[:, i] = np.concatenate((u_leader, optimize.minimize(**vars(problem)).x))
+        soln = optimize.minimize(**vars(problem))
+
+        u[:, i] = np.concatenate((u_leader, soln.x))
         x[:, i] = x[:, i - 1] + dt * num_mdl.dynamics(x[:, i - 1], u[:, i])
+
+        soln = utils.take_arrays(soln)
+        for k, v in soln.items():
+            optim_hist.setdefault(k, []).append(v)
+
+        problem = utils.take_arrays(vars(problem))
+        for k, v in problem.items():
+            optim_hist.setdefault(k, []).append(v)
 
         if anim:
             x_drawable = np.reshape(
@@ -76,6 +87,9 @@ def test(anim=False):
             anim_ax.autoscale_view(True, True)
             anim.canvas.draw_idle()
             plt.pause(0.01)
+
+    optim_hist = {k: np.asarray(v) for k, v in optim_hist.items()}
+    np.savez("data/optimization_results.npz", states=x, inputs=u, **optim_hist)
 
     def plotting_simple(model, x):
         figs = {}
