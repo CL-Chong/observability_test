@@ -67,11 +67,11 @@ class STLOG:
             "stlog_fun",
             [self._symbols["x"], self._symbols["u"], self._symbols["t"]],
             [self._stlog],
-            {
-                "compiler": "shell",
-                "jit": True,
-                "jit_options": {"compiler": "gcc", "flags": ["-O3"]},
-            },
+            # {
+            #     "compiler": "shell",
+            #     "jit": True,
+            #     "jit_options": {"compiler": "gcc", "flags": ["-O3"]},
+            # },
         )
 
     @property
