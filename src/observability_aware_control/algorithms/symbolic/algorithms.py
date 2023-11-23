@@ -112,10 +112,10 @@ class STLOG:
 
     def make_problem(self, x0, u0, t, u_lb, u_ub, log_scale=False, omit_leader=False):
         # log_scale still in testing
-        if max(abs(np.concatenate((u0, u_lb, u_ub)))) * t > 1.0:
-            print(
-                f"Warning: max(|u*t|) = {max(abs(np.concatenate((u0,u_lb,u_ub))))*t} > 1. STLOG convergence is not guaranteed."
-            )
+        # if max(abs(np.concatenate((u0, u_lb, u_ub)))) * t > 1.0:
+        #     print(
+        #         f"Warning: max(|u*t|) = {max(abs(np.concatenate((u0,u_lb,u_ub))))*t} > 1. STLOG convergence is not guaranteed."
+        #     )
         obj_fun_primitive = self.objective(x=x0, t=t)
         if omit_leader:
 
@@ -136,7 +136,7 @@ class STLOG:
         problem.bounds = optimize.Bounds(u_lb, u_ub)
         problem.method = "trust-constr"
         problem.options = {
-            "xtol": 1e-3,
+            "xtol": 1e-4,
             "gtol": 1e-8,
             "disp": False,
             "verbose": 0,

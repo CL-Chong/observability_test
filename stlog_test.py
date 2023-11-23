@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
 from scipy import optimize
+from scipy.optimize import NonlinearConstraint
 
 import src.observability_aware_control.models.autodiff.multi_planar_robot as nummodels
 import src.observability_aware_control.models.symbolic.multi_planar_robot as symmodels
@@ -12,32 +13,51 @@ from src.observability_aware_control.algorithms.symbolic.algorithms import STLOG
 from src.observability_aware_control.utils import utils
 from src.observability_aware_control.utils.minimize_problem import MinimizeProblem
 
-# from scipy.optimize import NonlinearConstraint
+# testing list: (X) = bad, (1/2) = not sure, (O) = good
+# nonlinear constraints (X)
+# log-scaling (1/2)
+# det and tr replacements for min eig (X)
+# waypoints (1/2 - doesn't break, but doesn't achieve much)
+# adaptive dt_stlog (O - continue to refine)
+# psd mod (O - less transients than base, but less turning too)
 
 
 def test(anim=False):
     rng = np.random.default_rng(seed=1000)
     order = 5
+    order_psd = 3
 
     sym_mdl = symmodels.LeaderFollowerRobots(3)
     num_mdl = nummodels.LeaderFollowerRobots(3)
-    stlog_cls = STLOG(sym_mdl, order)
+    stlog_cls = STLOG(sym_mdl, order, is_psd=False)
+    stlog_psd_cls = STLOG(sym_mdl, order_psd, is_psd=True)
     dt = 0.05
-    dt_stlog = 0.24
-    n_steps = 2000
-    opt_tol = 1e-7
+    dt_stlog = 0.2
+    n_steps = 4000
+    # adaptive stlog - kicks up if min eig < min_tol, down if min eig > max_tol
+    min_tol = 1e-6
+    max_tol = 1e-3
+    stlog_kick = 0.001  # kick size - in testing
+    switch_val = 1.01  # if dt_stlog * max(ub) > switch_val, switches to psd
+
     waypt_ratio = 1
-    kick_eps = 0.1
+
+    kick_eps = 0.1  # random kick to optimization IC
 
     x0 = np.array(
         [0.5, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, -5.0, 0.0],
     )
     rot_magnitude = 2
-    thrust = 4
+    min_thurst = 0.0
+    max_thrust = 4.0
     u_leader = [1.0, 0.0]
     u0 = np.concatenate((u_leader, [4.0, -1.0, 4.0, 1.0]))
-    u_lb = np.concatenate((u_leader, [0.0, -rot_magnitude, 0.0, -rot_magnitude]))
-    u_ub = np.concatenate((u_leader, [thrust, rot_magnitude, thrust, rot_magnitude]))
+    u_lb = np.concatenate(
+        (u_leader, [min_thurst, -rot_magnitude, min_thurst, -rot_magnitude])
+    )
+    u_ub = np.concatenate(
+        (u_leader, [max_thrust, rot_magnitude, max_thrust, rot_magnitude])
+    )
     # failed_dict = np.load("failed_optimization_results.npz")
     # pre_mortem_index = 2000
     # fatal_index = 2630
@@ -63,47 +83,78 @@ def test(anim=False):
 
     # optim_hist = {}
     # def con(a):
-    #     return (a[1] - a[3]) ** 2
+    #     return np.array([a[1] / a[0], a[3] / a[2]])
 
-    # nlc = NonlinearConstraint(con, 1e-6, +np.inf)
-
+    # nlc = NonlinearConstraint(con, [-1e4, -1e4], [1e4, 1e4])
+    dt_stlog_running = np.array(dt_stlog, copy=True)
     for i in tqdm.tqdm(range(1, n_steps)):
         if i % waypt_ratio == 0:
-            problem = stlog_cls.make_problem(
-                x[:, i - 1],
-                u[:, i - 1]
-                + np.concatenate(
-                    ([0, 0], rng.uniform(low=-kick_eps, high=kick_eps, size=(4,)))
-                ),
-                dt_stlog,
-                u_lb,
-                u_ub,
-                log_scale=False,
-                omit_leader=True,
-            )
-
-            soln = optimize.minimize(**vars(problem))
-            if abs(soln.fun) < opt_tol or soln.nit < 10:
-                print(
-                    f"Warning: Premature termination with min eigenvalue {abs(soln.fun)} at {soln.nit} iterations. Brute optimization initiated."
-                )
-                defn = vars(problem)
-                x0, fval, grid, Jout = optimize.brute(
-                    defn["fun"],
-                    tuple(zip(u_lb[2:], u_ub[2:])),
-                    Ns=5,
-                    full_output=True,
-                    finish=None,
-                )
-
-                u[:, i] = np.concatenate((u_leader, x0))
-                print(f"Brute optimization returns min eigenvalue {abs(fval)}.")
-            else:
-                u[:, i] = np.concatenate((u_leader, soln.x))
+            while True:
+                if dt_stlog * np.max(u_ub) < switch_val:
+                    problem = stlog_cls.make_problem(
+                        x[:, i - 1],
+                        u[:, i - 1]
+                        + np.concatenate(
+                            (
+                                [0, 0],
+                                rng.uniform(low=-kick_eps, high=kick_eps, size=(4,)),
+                            )
+                        ),
+                        dt_stlog_running,
+                        u_lb,
+                        u_ub,
+                        log_scale=False,
+                        omit_leader=True,
+                    )
+                else:
+                    problem = stlog_psd_cls.make_problem(
+                        x[:, i - 1],
+                        u[:, i - 1]
+                        + np.concatenate(
+                            (
+                                [0, 0],
+                                rng.uniform(low=-kick_eps, high=kick_eps, size=(4,)),
+                            )
+                        ),
+                        dt_stlog_running,
+                        u_lb,
+                        u_ub,
+                        log_scale=False,
+                        omit_leader=True,
+                    )
+                # problem.constraints = nlc
+                # if i > 1:
+                #     problem.options = {
+                #         "xtol": 1e-3,
+                #         "gtol": soln.fun * 1e-3,
+                #         "disp": False,
+                #         "verbose": 0,
+                #         "maxiter": 100,
+                #     }
+                soln = optimize.minimize(**vars(problem))
+                if abs(soln.fun) < min_tol:
+                    print(
+                        f"Reject solution. dt_stlog = {str(dt_stlog_running)}, u = {soln.x}, f = {abs(soln.fun)}. Increase dt_stlog."
+                    )
+                    dt_stlog_running += stlog_kick
+                elif abs(soln.fun) > max_tol:
+                    print(
+                        f"Reject solution. dt_stlog = {str(dt_stlog_running)}, u = {soln.x}, f = {abs(soln.fun)}. Decrease dt_stlog."
+                    )
+                    dt_stlog_running -= stlog_kick
+                else:
+                    u[:, i] = np.concatenate((u_leader, soln.x))
+                    break
         else:
             u[:, i] = u[:, i - 1]
 
-        x[:, i] = x[:, i - 1] + dt * num_mdl.dynamics(x[:, i - 1], u[:, i])
+        x[:, i] = (
+            x[:, i - 1]
+            + dt * num_mdl.dynamics(x[:, i - 1], u[:, i])
+            # + np.sqrt(dt)
+            # * np.concatenate(([0.0, 0.0, 0.0], rng.standard_normal(size=(6,))))
+        )
+
         x[::-3, i] = np.arctan2(np.sin(x[::-3, i]), np.cos(x[::-3, i]))
 
         # soln = utils.take_arrays(soln)
