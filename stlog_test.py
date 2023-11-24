@@ -32,7 +32,6 @@ def test(anim=False):
 
     sym_mdl = symmodels.LeaderFollowerRobots(3)
     num_mdl = nummodels.LeaderFollowerRobots(3)
-    stlog_cls = STLOG(sym_mdl, order, STLOGOptions(is_psd=False))
     stlog_psd_cls = STLOG(sym_mdl, order_psd, STLOGOptions(is_psd=True))
     dt = 0.05
     dt_stlog = 0.2
@@ -93,38 +92,21 @@ def test(anim=False):
     for i in tqdm.tqdm(range(1, n_steps)):
         if i % waypt_ratio == 0:
             while True:
-                if dt_stlog * np.max(u_ub) < switch_val:
-                    problem = stlog_cls.make_problem(
-                        x[:, i - 1],
-                        u[:, i - 1]
-                        + np.concatenate(
-                            (
-                                [0, 0],
-                                rng.uniform(low=-kick_eps, high=kick_eps, size=(4,)),
-                            )
-                        ),
-                        dt_stlog_running,
-                        u_lb,
-                        u_ub,
-                        log_scale=False,
-                        omit_leader=True,
-                    )
-                else:
-                    problem = stlog_psd_cls.make_problem(
-                        x[:, i - 1],
-                        u[:, i - 1]
-                        + np.concatenate(
-                            (
-                                [0, 0],
-                                rng.uniform(low=-kick_eps, high=kick_eps, size=(4,)),
-                            )
-                        ),
-                        dt_stlog_running,
-                        u_lb,
-                        u_ub,
-                        log_scale=False,
-                        omit_leader=True,
-                    )
+                problem = stlog_psd_cls.make_problem(
+                    x[:, i - 1],
+                    u[:, i - 1]
+                    + np.concatenate(
+                        (
+                            [0, 0],
+                            rng.uniform(low=-kick_eps, high=kick_eps, size=(4,)),
+                        )
+                    ),
+                    dt_stlog_running,
+                    u_lb,
+                    u_ub,
+                    log_scale=False,
+                    omit_leader=True,
+                )
                 # problem.constraints = nlc
                 # if i > 1:
                 #     problem.options = {
