@@ -32,7 +32,7 @@ def test(anim=False):
 
     sym_mdl = symmodels.LeaderFollowerRobots(3)
     num_mdl = nummodels.LeaderFollowerRobots(3)
-    stlog_psd_cls = STLOG(sym_mdl, order_psd, STLOGOptions(is_psd=True))
+    stlog_psd_cls = STLOG(sym_mdl, order_psd, STLOGOptions())
     dt = 0.05
     dt_stlog = 0.2
     n_steps = 4000

@@ -15,7 +15,6 @@ def _default_stlog_metric(x):
 
 @dataclasses.dataclass
 class STLOGOptions:
-    is_psd: bool = dataclasses.field(default=False)
     function_opts: Optional[Dict[str, Any]] = dataclasses.field(default=None)
     metric: Callable = dataclasses.field(default=_default_stlog_metric)
 
@@ -36,7 +35,7 @@ class STLOG:
         }
 
         # calculate self._stlog
-        self._stlog = create_stlog(self._symbols, self._order, opts.is_psd, mdl)
+        self._stlog = create_stlog(self._symbols, self._order, mdl)
 
         self._metric = opts.metric
 
@@ -111,7 +110,7 @@ class STLOG:
         return problem
 
 
-def create_stlog(symbols, order, is_psd=False, mdl=None):
+def create_stlog(symbols, order, mdl=None):
 
     if order == 0:
         raise ValueError("Zeroth-order STLOG is meaningless")
@@ -148,11 +147,4 @@ def create_stlog(symbols, order, is_psd=False, mdl=None):
         coeff = symbols["t"] ** (a + b + 1) / (facts[a] * facts[b] * (a + b + 1))
         return coeff * (dlh_store[a].T @ dlh_store[b])
 
-    def stlog(j, k):
-        coeff = symbols["t"] ** (j + 1) / ((j + 1) * facts[k] * facts[j - k])
-        return coeff * (dlh_store[k].T @ dlh_store[j - k])
-
-    if is_psd:
-        return sum(psd_stlog(a, b) for a in range(order + 1) for b in range(order + 1))
-    else:
-        return sum(stlog(l, k) for l in range(order) for k in range(l + 1))
+    return sum(psd_stlog(a, b) for a in range(order + 1) for b in range(order + 1))
