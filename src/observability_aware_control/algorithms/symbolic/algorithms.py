@@ -18,6 +18,7 @@ class STLOGOptions:
     is_psd: bool = dataclasses.field(default=False)
     function_opts: Optional[Dict[str, Any]] = dataclasses.field(default=None)
     metric: Callable = dataclasses.field(default=_default_stlog_metric)
+    smoothing: Optional[Dict[str, Any]] = dataclasses.field(default=None)
 
 
 class STLOG:
@@ -28,6 +29,37 @@ class STLOG:
         self._order = order
         self._NX = mdl.NX
         self._NU = mdl.NU
+
+        if opts.smoothing is not None:
+            try:
+                self._rng = np.random.default_rng(seed=opts.smoothing["rng"])
+            except KeyError:
+                print(
+                    "rng not specified in smoothing options. Using default value of 100 instead."
+                )
+                self._rng = np.random.default_rng(seed=100)
+            try:
+                self._mciter = opts.smoothing["mciter"]
+            except KeyError:
+                print(
+                    "mciter not specified in smoothing options. Using default value of 50 instead."
+                )
+                self._mciter = 50
+            try:
+                self._mcwidth = opts.smoothing["mcwidth"]
+            except KeyError:
+                print(
+                    "mciter not specified in smoothing options. Using default value of 0.01 instead."
+                )
+                self._mcwidth = 0.01
+            self._stencil = self._rng.uniform(
+                low=-self._mcwidth, high=self._mcwidth, size=(self._nx, self._mciter)
+            )
+            self._stencil -= np.reshape(
+                np.sum(self._stencil, axis=1), (self._nx, 1)
+            )  # remove bias in stencil
+        else:
+            self._stencil = None
 
         self._symbols = {
             "x": cs.MX.sym("x", mdl.nx),
@@ -82,7 +114,20 @@ class STLOG:
         #     print(
         #         f"Warning: max(|u*t|) = {max(abs(np.concatenate((u0,u_lb,u_ub))))*t} > 1. STLOG convergence is not guaranteed."
         #     )
-        obj_fun_primitive = self.objective(x_fix=x0, t_fix=t)
+        if self._stencil is not None:
+
+            def _obj_fun_avg(u):
+                output = 0.0
+                for i in range(0, self._mciter):
+                    output += (1 / self._mciter) * self.objective(
+                        x_fix=x0 + self._stencil[:, i],
+                        t_fix=t,
+                    )(u)
+                return output
+
+            obj_fun_primitive = _obj_fun_avg
+        else:
+            obj_fun_primitive = self.objective(x_fix=x0, t_fix=t)
         if omit_leader:
 
             def obj_fun_omit_leader(u_follower):
@@ -112,7 +157,6 @@ class STLOG:
 
 
 def create_stlog(symbols, order, is_psd=False, mdl=None):
-
     if order == 0:
         raise ValueError("Zeroth-order STLOG is meaningless")
 

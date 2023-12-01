@@ -23,6 +23,7 @@ from src.observability_aware_control.utils.minimize_problem import MinimizeProbl
 # waypoints (1/2 - doesn't break, but doesn't achieve much)
 # adaptive dt_stlog (O - continue to refine)
 # psd mod (O - less transients than base, but less turning too)
+# space averaging - in testing
 
 
 def test(anim=False):
@@ -32,15 +33,17 @@ def test(anim=False):
 
     sym_mdl = symmodels.LeaderFollowerRobots(3)
     num_mdl = nummodels.LeaderFollowerRobots(3)
-    stlog_psd_cls = STLOG(sym_mdl, order_psd, STLOGOptions(is_psd=True))
+    smoothing_dict = {"rng": 1000, "mciter": 100, "mcwidth": 0.01}
+    stlog_psd_cls = STLOG(
+        sym_mdl, order_psd, STLOGOptions(is_psd=True, smoothing=smoothing_dict)
+    )
     dt = 0.05
     dt_stlog = 0.2
-    n_steps = 4000
+    n_steps = 2000
     # adaptive stlog - kicks up if min eig < min_tol, down if min eig > max_tol
-    min_tol = 1e-6
-    max_tol = 1e-3
-    stlog_kick = 0.001  # kick size - in testing
-    switch_val = 1.01  # if dt_stlog * max(ub) > switch_val, switches to psd
+    min_tol = 1e-5
+    max_tol = 1e-2
+    stlog_kick = 0.01  # kick size - in testing
 
     waypt_ratio = 1
 
@@ -60,12 +63,12 @@ def test(anim=False):
     u_ub = np.concatenate(
         (u_leader, [max_thrust, rot_magnitude, max_thrust, rot_magnitude])
     )
-    # failed_dict = np.load("failed_optimization_results.npz")
-    # pre_mortem_index = 2000
-    # fatal_index = 2630
-    # x0 = failed_dict["states"][:, pre_mortem_index]
-    # u0 = failed_dict["inputs"][:, pre_mortem_index]
-    # print(x0)
+    failed_dict = np.load("failed_optimization_results.npz")
+    pre_mortem_index = 2000
+    fatal_index = 2630
+    x0 = failed_dict["states"][:, pre_mortem_index]
+    u0 = failed_dict["inputs"][:, pre_mortem_index]
+    # # print(x0)
     # print(num_mdl.observation(x0))
     # print(np.linalg.eig(stlog_cls._fun(x0, u0, dt_stlog)))
     # return
@@ -84,10 +87,7 @@ def test(anim=False):
         }
 
     # optim_hist = {}
-    # def con(a):
-    #     return np.array([a[1] / a[0], a[3] / a[2]])
 
-    # nlc = NonlinearConstraint(con, [-1e4, -1e4], [1e4, 1e4])
     dt_stlog_running = np.array(dt_stlog, copy=True)
     for i in tqdm.tqdm(range(1, n_steps)):
         if i % waypt_ratio == 0:
