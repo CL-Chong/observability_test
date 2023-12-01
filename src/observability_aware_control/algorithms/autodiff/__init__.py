@@ -1,1 +1,1 @@
-from .algorithms import numlog, numsolve_sigma
+from .algorithms import STLOG, STLOGOptions, numlog

@@ -1,10 +1,172 @@
+import dataclasses
 import functools
+import inspect
+from typing import Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+from scipy import optimize, special
+
+from ... import utils
+from ...optimize import minimize_problem
 
 NX = 3
 NU = 2
+
+
+jitmember = functools.partial(jax.jit, static_argnames=("self",))
+
+
+def _default_stlog_metric(x):
+    return -jnp.linalg.norm(x, -2)
+
+
+@dataclasses.dataclass
+class STLOGOptions:
+    dt: float
+    window: int = dataclasses.field(default=1)
+    id_const: Optional[Tuple[int, ...]] = dataclasses.field(default=None)
+
+
+def lfh_impl(fun, vector_field, x, u):
+    _, f_jvp = jax.linearize(functools.partial(fun, u=u), x)
+    return f_jvp(vector_field(x, u))
+
+
+def _lie_derivative(fun, vector_field, order, proj=None):
+    # Zeroth-order Lie Derivative
+    funsig = inspect.signature(fun)
+    if "u" not in funsig.parameters:
+        lfh = lambda x, u: fun(x)
+    else:
+        lfh = fun
+
+    # Prevent loop unrolling
+    with jax.disable_jit():
+        # Implement the recurrence relationship for higher order lie derivatives
+        for _ in range(order + 1):
+            yield proj(lfh) if proj is not None else lfh
+
+            # Caveats:
+            # - fh=lfh: Default-argument trick bypasses 'Cell variable ... defined in loop'
+            #   bug and ensures the freshest lie derivative is used in the lambda
+            # - The system input vector u does not take part in lie differentiation, hence
+            #   it is bound into the target for lie differentiation fn
+
+            lfh = jax.tree_util.Partial(lfh_impl, lfh, vector_field)
+
+
+class STLOG:
+    def __init__(self, mdl, order, metric=_default_stlog_metric, components=()):
+        self._order = order
+        self._order_seq = jnp.arange(order + 1)
+
+        self._observation = mdl.observation
+        self._dynamics = mdl.dynamics
+        self._nx = mdl.nx
+        self._nu = mdl.nu
+        if components:
+            id_mut = jnp.asarray(components, dtype=jnp.int32)
+            id_const = utils.complementary_indices(self._nx, id_mut)
+
+            def jacobian_wrt_mutable_components(fun):
+                jac = jax.jacfwd(utils.separate_array_argument(fun, self._nx, id_mut))
+                return lambda x, *args: jac(x[id_mut], x[id_const], *args)
+
+            proj = jacobian_wrt_mutable_components
+        else:
+            proj = jax.jacfwd
+
+        self._dalfh_f = list(
+            _lie_derivative(self.observation, self.dynamics, order, proj)
+        )
+        self._facts = jnp.asarray(special.factorial(self._order_seq, exact=True))
+
+        self._metric = metric
+
+    @property
+    def nx(self):
+        return self._nx
+
+    @property
+    def nu(self):
+        return self._nu
+
+    @property
+    def observation(self):
+        return self._observation
+
+    @property
+    def dynamics(self):
+        return self._dynamics
+
+    def _stlog(self, x, u, stlog_t):
+        dalfh = jnp.stack([it(x, u) for it in self._dalfh_f])
+
+        a, b = jnp.ix_(self._order_seq, self._order_seq)
+        k = a + b + 1
+        coeff = stlog_t**k / (self._facts[a] * self._facts[b] * k)
+        coeff = jnp.expand_dims(coeff, range(2, 4))
+
+        inner = dalfh[a].swapaxes(3, 2) @ dalfh[b]
+        return (coeff * inner).sum(axis=(0, 1))
+
+    @jitmember
+    def evaluate(self, x, u, t):
+        if self._metric is not None:
+            return self._metric(self._stlog(x, u, t))
+        return self._stlog(x, u, t)
+
+
+class STLOGMinimizeProblem:
+    def __init__(self, stlog: STLOG, opts: STLOGOptions):
+        self._stlog = stlog
+        self._nu = self._stlog.nu
+        self._dt_stlog = opts.dt
+
+        self.gradient = jax.jit(jax.grad(self.objective))
+
+    @jitmember
+    def objective(self, us, x, dt):
+        xs = self.forward_dynamics(x, us, dt)
+        dt = jnp.broadcast_to(self._dt_stlog, us.shape[0])
+        return jnp.sum(jax.vmap(self._stlog.evaluate)(xs, us, dt))
+
+    @jitmember
+    def forward_dynamics(self, x0, u, dt):
+        def _update(x_op, tup):
+            u, dt = tup
+            x_new = x_op + dt * self._stlog.dynamics(x_op, u)
+            return x_new, x_new
+
+        dt = jnp.broadcast_to(dt, u.shape[0])
+        return jax.lax.scan(_update, init=x0, xs=(u, dt))[1]
+
+    def make_problem(self, x0, u0, t, u_lb, u_ub, id_const):
+        # log_scale still in testing
+        # if max(abs(np.concatenate((u0, u_lb, u_ub)))) * t > 1.0:
+        #     print(
+        #         f"Warning: max(|u*t|) = {max(abs(np.concatenate((u0,u_lb,u_ub))))*t} > 1. STLOG convergence is not guaranteed."
+        #     )
+        u0, u_lb, u_ub = jnp.broadcast_arrays(u0, u_lb, u_ub)
+        args = (x0, t)
+
+        problem = minimize_problem.MinimizeProblem(self.objective, u0)
+        problem.args = args
+        problem.id_const = id_const
+        problem.jac = self.gradient
+
+        problem.bounds = optimize.Bounds(u_lb, u_ub)  # type: ignore
+        problem.method = "trust-constr"
+        problem.options = {
+            "xtol": 1e-4,
+            "gtol": 1e-8,
+            "disp": False,
+            "verbose": 0,
+            "maxiter": 100,
+        }
+
+        return problem
 
 
 @functools.partial(jax.jit, static_argnames=("sys", "without_observation", "axis"))

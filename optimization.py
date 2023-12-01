@@ -9,7 +9,7 @@ import numpy as np
 from scipy import optimize
 
 from observability_aware_control import utils
-from observability_aware_control.algorithms.autodiff import numlog, numsolve_sigma
+from observability_aware_control.algorithms.autodiff import _forward_dynamics, numlog
 from observability_aware_control.models.autodiff import multi_planar_robot, planar_robot
 
 
@@ -76,7 +76,7 @@ def main():
     )
 
     mdl = multi_planar_robot.ReferenceSensingRobots(n_robots=2)
-    leader_x = numsolve_sigma(
+    leader_x = _forward_dynamics(
         planar_robot.PlanarRobot(),
         params["x0_leader"],
         params["u_leader"],
@@ -101,7 +101,7 @@ def main():
 
     def leader_tracking_constr(u):
         u = u.reshape(mdl.nu, params["n_steps"], order="F")
-        x_actual = numsolve_sigma(
+        x_actual = _forward_dynamics(
             mdl,
             params["x0_follower"],
             u,
@@ -116,7 +116,7 @@ def main():
         dx = x_actual - leader_x[:, None, :]
         return jnp.linalg.norm(dx, axis=0).ravel()
 
-    traj_follower = numsolve_sigma(
+    traj_follower = _forward_dynamics(
         mdl,
         params["x0_follower"],
         params["u_follower"],
@@ -129,7 +129,7 @@ def main():
 
     def destination_constr(u):
         u = u.reshape(mdl.nu, params["n_steps"], order="F")
-        x_actual = numsolve_sigma(
+        x_actual = _forward_dynamics(
             mdl,
             params["x0_follower"],
             u,
@@ -190,7 +190,7 @@ def main():
     jnp.savez("data/optimization_results.npz", **save)
 
     u_opt = jnp.reshape(soln.x, (-1, params["n_steps"]), order="F")
-    traj_follower_opt = numsolve_sigma(
+    traj_follower_opt = _forward_dynamics(
         mdl,
         params["x0_follower"],
         u_opt,

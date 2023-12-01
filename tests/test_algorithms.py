@@ -39,7 +39,7 @@ def test_numsolve():
         params["ad"].update({k: jnp.asarray(v) for k, v in rand_vals.items()})
 
         num_results = algorithms.numsolve_sigma(**params["num"])
-        ad_results = ad_algorithms.numsolve_sigma(**params["ad"], axis=1)
+        ad_results = ad_algorithms._forward_dynamics(**params["ad"], axis=1)
         for lhs, rhs, key in zip(num_results, ad_results, ("state", "observation")):
             npt.assert_allclose(
                 lhs,
@@ -60,7 +60,7 @@ def test_numsolve_leader_follower_vs_reference_sensing_ad():
         params["num"].update(rand_vals)
         params["ad"].update({k: jnp.asarray(v) for k, v in rand_vals.items()})
 
-        combined_x, combined_y = ad_algorithms.numsolve_sigma(
+        combined_x, combined_y = ad_algorithms._forward_dynamics(
             leader_follower,
             params["ad"]["x0"],
             params["ad"]["u"],
@@ -69,7 +69,7 @@ def test_numsolve_leader_follower_vs_reference_sensing_ad():
         )
         x0_leader, x0_follower = jnp.split(params["ad"]["x0"], (leader.nx,))
         u_leader, u_follower = jnp.split(params["ad"]["u"], (leader.nu,))
-        leader_x = ad_algorithms.numsolve_sigma(
+        leader_x = ad_algorithms._forward_dynamics(
             leader,
             x0_leader,
             u_leader,
@@ -78,7 +78,7 @@ def test_numsolve_leader_follower_vs_reference_sensing_ad():
             axis=1,
         )
 
-        follower_x, follower_y = ad_algorithms.numsolve_sigma(
+        follower_x, follower_y = ad_algorithms._forward_dynamics(
             followers,
             x0_follower,
             u_follower,
@@ -145,7 +145,7 @@ def test_numlog_leader_follower_vs_reference_sensing_ad():
         )
         x0_leader, x0_follower = jnp.split(params["ad"]["x0"], (leader.nx,))
         u_leader, u_follower = jnp.split(params["ad"]["u"], (leader.nu,))
-        leader_x = ad_algorithms.numsolve_sigma(
+        leader_x = ad_algorithms._forward_dynamics(
             leader,
             x0_leader,
             u_leader,

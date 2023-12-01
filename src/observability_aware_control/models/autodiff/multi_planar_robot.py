@@ -8,6 +8,11 @@ from . import planar_robot
 
 
 class MultiRobot(model_base.ModelBase):
+    """A system of multiple robots"""
+
+    NX = 3  # (innermost) state dimension
+    NU = 2  # (innermost) input dimension
+
     def __init__(self, n_robots):
         self._n_robots = n_robots
 

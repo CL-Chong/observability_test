@@ -1,1 +1,1 @@
-from .algorithms import STLOG, create_stlog
+from .algorithms import STLOG, STLOGOptions, create_stlog
