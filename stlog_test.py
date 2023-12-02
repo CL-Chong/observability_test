@@ -5,6 +5,7 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
+import joblib
 from scipy import optimize
 from scipy.optimize import NonlinearConstraint
 
@@ -32,12 +33,13 @@ def test(anim=False):
     order_psd = 3
 
     num_mdl = nummodels.LeaderFollowerRobots(3)
-    win_sz = 5
+    win_sz_arr = np.arange(5, 1000, dtype=int)
+    win_fmin = 1e-5
     stlog = STLOG(num_mdl, order_psd)
     dt = 0.05
     dt_stlog = 0.2
     n_steps = 4000
-    # adaptive stlog - kicks up if min eig < min_tol, down if min eig > max_tol
+ 
     x0 = np.array(
         [0.5, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, -5.0, 0.0],
     )
@@ -52,6 +54,12 @@ def test(anim=False):
     u_ub = np.concatenate(
         (u_leader, [max_thrust, rot_magnitude, max_thrust, rot_magnitude])
     )
+    # some failed results
+    failed_dict = np.load("failed_optimization_results.npz")
+    pre_mortem_index = 2850
+    # fatal_index = 2630
+    x0 = failed_dict["states"][:, pre_mortem_index]
+    u0 = failed_dict["inputs"][:, pre_mortem_index]
 
     x = np.zeros((num_mdl.nx, n_steps))
     x[:, 0] = x0
@@ -74,39 +82,63 @@ def test(anim=False):
 
     # nlc = NonlinearConstraint(con, [-1e4, -1e4], [1e4, 1e4])
 
-    u_leader = np.tile(u_leader[..., None], [1, win_sz])
-    min_problem = STLOGMinimizeProblem(stlog, STLOGOptions(dt=dt_stlog, window=win_sz))
-    for i in tqdm.tqdm(range(1, n_steps, win_sz)):
-        problem = min_problem.make_problem(
-            x[:, i - 1],
-            jnp.broadcast_to(u[:, i - 1], (win_sz, len(u[:, i - 1]))),
-            dt,
-            u_lb,
-            u_ub,
-            id_const=(0, 1),
-        )
-
-        soln = minimize(problem)
-        soln_u = soln.x.T
-        sentinel_idx = min(i + win_sz, n_steps)
-        win_idx = slice(i, sentinel_idx)
-        u[:, win_idx] = soln_u[:, : win_sz + min(n_steps - i - win_sz, 0)]
-        x[:, win_idx] = min_problem.forward_dynamics(x[:, i - 1], soln.x, dt).T
-
-        x[::-3, win_idx] = utils.wrap_to_pi(x[::-3, win_idx])
-
-        if anim:
-            x_drawable = np.reshape(
-                x[:, 0:i], (num_mdl.NX, num_mdl.n_robots, i), order="F"
+    # u_leader = np.tile(u_leader[..., None], [1, win_sz])
+    @joblib.delayed
+    def _make_problem(win_sz):
+        return STLOGMinimizeProblem(stlog, STLOGOptions(dt=dt_stlog, window=win_sz))
+    par_evaluator = joblib.Parallel(12)
+    min_problem_arr = par_evaluator(_make_problem(win_sz) for win_sz in win_sz_arr)
+    skip_until = 0
+    print("Compilation of STLOGMinimizeProblem complete.")
+    for i in tqdm.tqdm(range(1, n_steps)):
+        if i < skip_until:
+            continue
+        j_tmp = 0
+        while j_tmp < len(win_sz_arr):
+            problem = min_problem_arr[j_tmp].make_problem(
+                x[:, i - 1],
+                jnp.broadcast_to(u[:, i - 1], (win_sz_arr[j_tmp], len(u[:, i - 1]))),
+                dt,
+                u_lb,
+                u_ub,
+                id_const=(0, 1),
             )
-            for j in range(num_mdl.n_robots):
-                anim_data[j]["x"] = x_drawable[0, j, :]
-                anim_data[j]["y"] = x_drawable[1, j, :]
-                anim_data[j]["line"].set_data(anim_data[j]["x"], anim_data[j]["y"])
-            anim_ax.relim()
-            anim_ax.autoscale_view(True, True)
-            anim.canvas.draw_idle()
-            plt.pause(0.01)
+
+            soln = minimize(problem)
+            if abs(soln.fun) > win_fmin or j_tmp == len(win_sz_arr) - 1: # accept solution
+                soln_u = soln.x.T
+                sentinel_idx = min(i + win_sz_arr[j_tmp], n_steps)
+                win_idx = slice(i, sentinel_idx)
+                u[:, win_idx] = soln_u[:, : win_sz_arr[j_tmp] + min(n_steps - i - win_sz_arr[j_tmp], 0)]
+                x[:, win_idx] = min_problem_arr[j_tmp].forward_dynamics(x[:, i - 1], soln.x, dt).T[:, : win_sz_arr[j_tmp] + min(n_steps - i - win_sz_arr[j_tmp], 0)]
+
+                x[::-3, win_idx] = utils.wrap_to_pi(x[::-3, win_idx])
+
+                if anim:
+                    x_drawable = np.reshape(
+                        x[:, 0:i], (num_mdl.NX, num_mdl.n_robots, i), order="F"
+                    )
+                    for j in range(num_mdl.n_robots):
+                        anim_data[j]["x"] = x_drawable[0, j, :]
+                        anim_data[j]["y"] = x_drawable[1, j, :]
+                        anim_data[j]["line"].set_data(anim_data[j]["x"], anim_data[j]["y"])
+                    anim_ax.relim()
+                    anim_ax.autoscale_view(True, True)
+                    anim.canvas.draw_idle()
+                    plt.pause(0.01)
+                
+                skip_until = i + win_sz_arr[j_tmp]
+                if j_tmp == len(win_sz_arr) - 1:
+                    print(f"Maximum window size {win_sz_arr[j_tmp]} reached with objective value {soln.fun}. Continuing.")
+
+                break
+            else:
+                print(f"Reject solution with window size {win_sz_arr[j_tmp]} and objective value {soln.fun}.")
+                j_tmp += 1 # reject solution. try next window size
+                
+
+
+                
 
     # optim_hist = {k: np.asarray(v) for k, v in optim_hist.items()}
     # np.savez("data/optimization_results.npz", states=x, inputs=u, **optim_hist)
