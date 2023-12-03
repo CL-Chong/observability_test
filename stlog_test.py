@@ -2,10 +2,10 @@ import math
 
 import jax
 import jax.numpy as jnp
+import joblib
 import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
-import joblib
 from scipy import optimize
 from scipy.optimize import NonlinearConstraint
 
@@ -39,7 +39,7 @@ def test(anim=False):
     dt = 0.05
     dt_stlog = 0.2
     n_steps = 4000
- 
+
     x0 = np.array(
         [0.5, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, -5.0, 0.0],
     )
@@ -83,11 +83,8 @@ def test(anim=False):
     # nlc = NonlinearConstraint(con, [-1e4, -1e4], [1e4, 1e4])
 
     # u_leader = np.tile(u_leader[..., None], [1, win_sz])
-    @joblib.delayed
-    def _make_problem(win_sz):
-        return STLOGMinimizeProblem(stlog, STLOGOptions(dt=dt_stlog, window=win_sz))
-    par_evaluator = joblib.Parallel(12)
-    min_problem_arr = par_evaluator(_make_problem(win_sz) for win_sz in win_sz_arr)
+
+    min_problem = STLOGMinimizeProblem(stlog, STLOGOptions(dt=dt_stlog, window=150))
     skip_until = 0
     print("Compilation of STLOGMinimizeProblem complete.")
     for i in tqdm.tqdm(range(1, n_steps)):
@@ -95,7 +92,7 @@ def test(anim=False):
             continue
         j_tmp = 0
         while j_tmp < len(win_sz_arr):
-            problem = min_problem_arr[j_tmp].make_problem(
+            problem = min_problem.make_problem(
                 x[:, i - 1],
                 jnp.broadcast_to(u[:, i - 1], (win_sz_arr[j_tmp], len(u[:, i - 1]))),
                 dt,
@@ -105,12 +102,18 @@ def test(anim=False):
             )
 
             soln = minimize(problem)
-            if abs(soln.fun) > win_fmin or j_tmp == len(win_sz_arr) - 1: # accept solution
+            if (
+                abs(soln.fun) > win_fmin or j_tmp == len(win_sz_arr) - 1
+            ):  # accept solution
                 soln_u = soln.x.T
                 sentinel_idx = min(i + win_sz_arr[j_tmp], n_steps)
                 win_idx = slice(i, sentinel_idx)
-                u[:, win_idx] = soln_u[:, : win_sz_arr[j_tmp] + min(n_steps - i - win_sz_arr[j_tmp], 0)]
-                x[:, win_idx] = min_problem_arr[j_tmp].forward_dynamics(x[:, i - 1], soln.x, dt).T[:, : win_sz_arr[j_tmp] + min(n_steps - i - win_sz_arr[j_tmp], 0)]
+                u[:, win_idx] = soln_u[
+                    :, : win_sz_arr[j_tmp] + min(n_steps - i - win_sz_arr[j_tmp], 0)
+                ]
+                x[:, win_idx] = min_problem.forward_dynamics(x[:, i - 1], soln.x, dt).T[
+                    :, : win_sz_arr[j_tmp] + min(n_steps - i - win_sz_arr[j_tmp], 0)
+                ]
 
                 x[::-3, win_idx] = utils.wrap_to_pi(x[::-3, win_idx])
 
@@ -121,24 +124,28 @@ def test(anim=False):
                     for j in range(num_mdl.n_robots):
                         anim_data[j]["x"] = x_drawable[0, j, :]
                         anim_data[j]["y"] = x_drawable[1, j, :]
-                        anim_data[j]["line"].set_data(anim_data[j]["x"], anim_data[j]["y"])
+                        anim_data[j]["line"].set_data(
+                            anim_data[j]["x"], anim_data[j]["y"]
+                        )
                     anim_ax.relim()
                     anim_ax.autoscale_view(True, True)
                     anim.canvas.draw_idle()
                     plt.pause(0.01)
-                
+
                 skip_until = i + win_sz_arr[j_tmp]
                 if j_tmp == len(win_sz_arr) - 1:
-                    print(f"Maximum window size {win_sz_arr[j_tmp]} reached with objective value {soln.fun}. Continuing.")
+                    print(
+                        f"Maximum window size {win_sz_arr[j_tmp]} reached with"
+                        f" objective value {soln.fun}. Continuing."
+                    )
 
                 break
             else:
-                print(f"Reject solution with window size {win_sz_arr[j_tmp]} and objective value {soln.fun}.")
-                j_tmp += 1 # reject solution. try next window size
-                
-
-
-                
+                print(
+                    f"Reject solution with window size {win_sz_arr[j_tmp]} and"
+                    f" objective value {soln.fun}."
+                )
+                j_tmp += 1  # reject solution. try next window size
 
     # optim_hist = {k: np.asarray(v) for k, v in optim_hist.items()}
     # np.savez("data/optimization_results.npz", states=x, inputs=u, **optim_hist)
