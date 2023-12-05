@@ -76,7 +76,7 @@ def test(anim=False):
 
     u_leader = np.tile(u_leader[..., None], [1, win_sz])
     min_problem = STLOGMinimizeProblem(stlog, STLOGOptions(dt=dt_stlog, window=win_sz))
-    for i in tqdm.tqdm(range(1, n_steps, win_sz)):
+    for i in tqdm.tqdm(range(1, n_steps)):
         problem = min_problem.make_problem(
             x[:, i - 1],
             jnp.broadcast_to(u[:, i - 1], (win_sz, len(u[:, i - 1]))),
@@ -87,13 +87,11 @@ def test(anim=False):
         )
 
         soln = minimize(problem)
-        soln_u = soln.x.T
-        sentinel_idx = min(i + win_sz, n_steps)
-        win_idx = slice(i, sentinel_idx)
-        u[:, win_idx] = soln_u[:, : win_sz + min(n_steps - i - win_sz, 0)]
-        x[:, win_idx] = min_problem.forward_dynamics(x[:, i - 1], soln.x, dt).T
+        soln_u = soln.x[0, :]
+        u[:, i] = soln_u
+        x[:, i] = min_problem.forward_dynamics(x[:, i - 1], soln_u, dt)
 
-        x[::-3, win_idx] = utils.wrap_to_pi(x[::-3, win_idx])
+        x[::-3, i] = utils.wrap_to_pi(x[::-3, i])
 
         if anim:
             x_drawable = np.reshape(
