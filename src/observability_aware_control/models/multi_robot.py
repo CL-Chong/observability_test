@@ -3,8 +3,7 @@ import functools
 import jax
 import jax.numpy as jnp
 
-from .. import model_base
-from . import robot
+from . import model_base, robot
 
 
 class MultiRobot(model_base.ModelBase):

@@ -3,8 +3,7 @@ import functools
 import jax
 import jax.numpy as jnp
 
-from .. import model_base
-from . import quadrotor
+from . import model_base, quadrotor
 
 
 class MultiQuadrotor(model_base.ModelBase):

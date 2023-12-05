@@ -3,7 +3,7 @@ import functools
 import jax
 import jax.numpy as jnp
 
-from .. import model_base
+from . import model_base
 
 NX = 4
 NU = 3

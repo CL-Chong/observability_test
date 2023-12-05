@@ -8,8 +8,8 @@ import jax
 import jax.numpy as jnp
 from scipy import optimize, special
 
-from ... import utils
-from ...optimize import minimize_problem
+from .. import utils
+from ..optimize import minimize_problem
 
 NX = 3
 NU = 2

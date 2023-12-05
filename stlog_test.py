@@ -8,8 +8,8 @@ import tqdm
 from scipy import optimize
 from scipy.optimize import NonlinearConstraint
 
-import src.observability_aware_control.models.autodiff.multi_robot as nummodels
-from src.observability_aware_control.algorithms.autodiff.algorithms import (
+import src.observability_aware_control.models.multi_robot as nummodels
+from src.observability_aware_control.algorithms.algorithms import (
     STLOG,
     STLOGMinimizeProblem,
     STLOGOptions,
