@@ -1,7 +1,8 @@
 import dataclasses
 import functools
 import inspect
-from typing import Callable, Optional, Tuple
+import time
+from typing import Optional, Tuple
 
 import jax
 import jax.numpy as jnp
@@ -101,7 +102,8 @@ class STLOG:
         return self._dynamics
 
     def _stlog(self, x, u, stlog_t):
-        dalfh = jnp.stack([it(x, u) for it in self._dalfh_f])
+        dalfh = jnp.stack(jax.tree_util.tree_map(lambda it: it(x, u), self._dalfh_f))
+        # dalfh = jnp.stack([it(x, u) for it in self._dalfh_f])
 
         a, b = jnp.ix_(self._order_seq, self._order_seq)
         k = a + b + 1
@@ -121,10 +123,24 @@ class STLOG:
 class STLOGMinimizeProblem:
     def __init__(self, stlog: STLOG, opts: STLOGOptions):
         self._stlog = stlog
+        self._nx = self._stlog.nx
         self._nu = self._stlog.nu
         self._dt_stlog = opts.dt
 
-        self.gradient = jax.jit(jax.grad(self.objective))
+        gradient = jax.jit(jax.grad(self.objective))
+        if opts.window > 1:
+            print("Precompiling gradient...", end="")
+            tic = time.perf_counter()
+
+            self.gradient = gradient.lower(
+                jnp.zeros((opts.window, self._nu)),
+                jnp.zeros(self._nx),
+                0.2,
+            ).compile()
+            toc = time.perf_counter() - tic
+            print(f"Done in {toc}s")
+        else:
+            self.gradient = gradient
 
     @jitmember
     def objective(self, us, x, dt):
@@ -139,6 +155,7 @@ class STLOGMinimizeProblem:
             x_new = x_op + dt * self._stlog.dynamics(x_op, u)
             return x_new, x_new
 
+        u = jnp.atleast_2d(u)
         dt = jnp.broadcast_to(dt, u.shape[0])
         return jax.lax.scan(_update, init=x0, xs=(u, dt))[1]
 
