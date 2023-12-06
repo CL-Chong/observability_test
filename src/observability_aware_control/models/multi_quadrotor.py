@@ -14,7 +14,7 @@ class MultiQuadrotor(model_base.ModelBase):
 
     def __init__(self, n_robots, mass):
         self._n_robots = n_robots
-        self._mass = mass
+        self._mass = jnp.broadcast_to(mass, n_robots)
 
     @property
     def nx(self):
@@ -49,4 +49,4 @@ class MultiQuadrotor(model_base.ModelBase):
         obs = jax.vmap(quadrotor.observation, in_axes=(0, None))
 
         h_bearings = obs(x[1:, :], pos_ref).ravel()
-        return jnp.concatenate([h_att, h_bearings])
+        return jnp.concatenate([pos_ref, h_att, h_bearings])

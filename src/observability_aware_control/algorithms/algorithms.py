@@ -127,20 +127,20 @@ class STLOGMinimizeProblem:
         self._nu = self._stlog.nu
         self._dt_stlog = opts.dt
 
-        # gradient = jax.jit(jax.grad(self.objective))
-        # if opts.window > 1:
-        #     print("Precompiling gradient...", end="")
-        #     tic = time.perf_counter()
+        gradient = jax.jit(jax.grad(self.objective))
+        if opts.window > 1:
+            print("Precompiling gradient...", end="")
+            tic = time.perf_counter()
 
-        #     self.gradient = gradient.lower(
-        #         jnp.zeros((opts.window, self._nu)),
-        #         jnp.zeros(self._nx),
-        #         0.2,
-        #     ).compile()
-        #     toc = time.perf_counter() - tic
-        #     print(f"Done in {toc}s")
-        # else:
-        #     self.gradient = gradient
+            self.gradient = gradient.lower(
+                jnp.zeros((opts.window, self._nu)),
+                jnp.zeros(self._nx),
+                0.2,
+            ).compile()
+            toc = time.perf_counter() - tic
+            print(f"Done in {toc}s")
+        else:
+            self.gradient = gradient
 
     @jitmember
     def objective(self, us, x, dt):
@@ -181,10 +181,10 @@ class STLOGMinimizeProblem:
         problem.id_const = id_const
         problem.constraints = optimize.NonlinearConstraint(
             lambda u: self.lf_constraint(u, x0, t),
-            lb=jnp.r_[jnp.full(u0.shape[0] * 2, 2), jnp.full(u0.shape[0] * 3, 4)],
-            ub=jnp.r_[jnp.full(u0.shape[0] * 2, 7.5), jnp.full(u0.shape[0] * 3, 10.25)],
+            lb=jnp.r_[jnp.full(u0.shape[0] * 2, 0.2), jnp.full(u0.shape[0] * 3, 9.5)],
+            ub=jnp.r_[jnp.full(u0.shape[0] * 2, 3.2), jnp.full(u0.shape[0] * 3, 10.5)],
         )
-        # problem.jac = self.gradient
+        problem.jac = self.gradient
 
         problem.bounds = optimize.Bounds(u_lb, u_ub)  # type: ignore
         problem.method = "trust-constr"

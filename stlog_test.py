@@ -30,14 +30,14 @@ jax.config.update("jax_enable_x64", True)
 
 
 def test(anim=False):
-    order_psd = 2
+    order_psd = 1
 
-    num_mdl = nummodels.MultiQuadrotor(3, np.r_[1.0, 1.0, 1.0])
-    win_sz = 5
+    num_mdl = nummodels.MultiQuadrotor(3, 1.0)
+    win_sz = 10
     stlog = STLOG(num_mdl, order_psd, components=(10, 11, 20, 21))
     dt = 0.05
     dt_stlog = 0.2
-    n_steps = 2000
+    n_steps = 1000
     # adaptive stlog - kicks up if min eig < min_tol, down if min eig > max_tol
     ms = planning.MinimumSnap(
         5, [0, 0, 1, 1], planning.MinimumSnapAlgorithm.CONSTRAINED
@@ -48,7 +48,7 @@ def test(anim=False):
     inputs_traj = []
     for it in x0:
         pp = ms.generate(
-            np.linspace(it, it + np.array([50, 0, 0]), 10, axis=1),
+            np.linspace(it, it + np.array([5000, 0, 0]), 10, axis=1),
             np.r_[0:10] * 1000 * 0.05,
         )
         traj = pp.to_real_trajectory(1.0, np.r_[0:n_steps] * 0.05)
@@ -59,11 +59,9 @@ def test(anim=False):
     inputs_traj = np.stack(inputs_traj)
     x0 = states_traj[:, :, 0].ravel()
 
-    rot_magnitude = 3.0
-    max_thrust = 12.0
     u0 = inputs_traj[:, :, 0].ravel()
-    u_lb = np.tile(np.r_[0.0, np.full(3, -rot_magnitude)], 3)
-    u_ub = np.tile(np.r_[12.0, np.full(3, rot_magnitude)], 3)
+    u_lb = np.tile(np.r_[0.0, -1, -1, -2.0], num_mdl.n_robots)
+    u_ub = np.tile(np.r_[12.0, 1, 1, 2.0], num_mdl.n_robots)
     x = np.zeros((num_mdl.nx, n_steps))
     x[:, 0] = x0
 
@@ -88,7 +86,7 @@ def test(anim=False):
             dt,
             u_lb,
             u_ub,
-            id_const=tuple(range(10)),
+            id_const=tuple(range(4)),
         )
 
         soln = minimize(problem)
