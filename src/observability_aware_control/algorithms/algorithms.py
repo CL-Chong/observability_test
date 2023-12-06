@@ -127,20 +127,20 @@ class STLOGMinimizeProblem:
         self._nu = self._stlog.nu
         self._dt_stlog = opts.dt
 
-        gradient = jax.jit(jax.grad(self.objective))
-        if opts.window > 1:
-            print("Precompiling gradient...", end="")
-            tic = time.perf_counter()
+        # gradient = jax.jit(jax.grad(self.objective))
+        # if opts.window > 1:
+        #     print("Precompiling gradient...", end="")
+        #     tic = time.perf_counter()
 
-            self.gradient = gradient.lower(
-                jnp.zeros((opts.window, self._nu)),
-                jnp.zeros(self._nx),
-                0.2,
-            ).compile()
-            toc = time.perf_counter() - tic
-            print(f"Done in {toc}s")
-        else:
-            self.gradient = gradient
+        #     self.gradient = gradient.lower(
+        #         jnp.zeros((opts.window, self._nu)),
+        #         jnp.zeros(self._nx),
+        #         0.2,
+        #     ).compile()
+        #     toc = time.perf_counter() - tic
+        #     print(f"Done in {toc}s")
+        # else:
+        #     self.gradient = gradient
 
     @jitmember
     def objective(self, us, x, dt):
@@ -159,6 +159,14 @@ class STLOGMinimizeProblem:
         dt = jnp.broadcast_to(dt, u.shape[0])
         return jax.lax.scan(_update, init=x0, xs=(u, dt))[1]
 
+    @jitmember
+    def lf_constraint(self, us, x, dt):
+        xs = self.forward_dynamics(x, us, dt)
+        xs = jnp.moveaxis(xs.reshape(xs.shape[0], -1, 10)[:, :, 0:3], 1, 0)
+        z = xs[:, :, -1].ravel()
+        dp = jnp.linalg.norm(xs[1:, ...] - xs[0, ...], axis=-1).ravel()
+        return jnp.concatenate([dp, z])
+
     def make_problem(self, x0, u0, t, u_lb, u_ub, id_const):
         # log_scale still in testing
         # if max(abs(np.concatenate((u0, u_lb, u_ub)))) * t > 1.0:
@@ -171,7 +179,12 @@ class STLOGMinimizeProblem:
         problem = minimize_problem.MinimizeProblem(self.objective, u0)
         problem.args = args
         problem.id_const = id_const
-        problem.jac = self.gradient
+        problem.constraints = optimize.NonlinearConstraint(
+            lambda u: self.lf_constraint(u, x0, t),
+            lb=jnp.r_[jnp.full(u0.shape[0] * 2, 2), jnp.full(u0.shape[0] * 3, 4)],
+            ub=jnp.r_[jnp.full(u0.shape[0] * 2, 7.5), jnp.full(u0.shape[0] * 3, 10.25)],
+        )
+        # problem.jac = self.gradient
 
         problem.bounds = optimize.Bounds(u_lb, u_ub)  # type: ignore
         problem.method = "trust-constr"

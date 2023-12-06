@@ -7,6 +7,8 @@ from . import model_base, quadrotor
 
 
 class MultiQuadrotor(model_base.ModelBase):
+    NX = quadrotor.NX
+    NU = quadrotor.NU
     DIM_ATT_OBS = 4
     DIM_BRNG_OBS = 2
 
@@ -39,13 +41,12 @@ class MultiQuadrotor(model_base.ModelBase):
         return self._n_robots * (self.DIM_ATT_OBS + self.DIM_BRNG_OBS)
 
     @functools.partial(jax.jit, static_argnames=("self",))
-    @functools.partial(jax.vmap, in_axes=(None, 0))
     def observation(self, x):
         x = x.reshape(self._n_robots, quadrotor.NX)
         h_att = x[:, 3:7].ravel()
-        pos_ref = x[0, 0:2]
+        pos_ref = x[0, 0:3]
 
-        obs = jax.vmap(quadrotor.observation, in_axes=(None, 0, None))
+        obs = jax.vmap(quadrotor.observation, in_axes=(0, None))
 
-        h_bearings = obs(x, pos_ref)
+        h_bearings = obs(x[1:, :], pos_ref).ravel()
         return jnp.concatenate([h_att, h_bearings])

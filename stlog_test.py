@@ -8,8 +8,9 @@ import tqdm
 from scipy import optimize
 from scipy.optimize import NonlinearConstraint
 
-import src.observability_aware_control.models.multi_robot as nummodels
-from src.observability_aware_control.algorithms.algorithms import (
+import src.observability_aware_control.models.multi_quadrotor as nummodels
+from src.observability_aware_control import planning
+from src.observability_aware_control.algorithms import (
     STLOG,
     STLOGMinimizeProblem,
     STLOGOptions,
@@ -29,57 +30,46 @@ jax.config.update("jax_enable_x64", True)
 
 
 def test(anim=False):
-    order_psd = 1
+    order_psd = 2
 
-    num_mdl = nummodels.LeaderFollowerRobots(3)
+    num_mdl = nummodels.MultiQuadrotor(3, np.r_[1.0, 1.0, 1.0])
     win_sz = 5
-    stlog = STLOG(num_mdl, order_psd, components=(4, 5, 6, 8, 9, 10))
+    stlog = STLOG(num_mdl, order_psd, components=(10, 11, 20, 21))
     dt = 0.05
     dt_stlog = 0.2
-    n_steps = 4000
+    n_steps = 2000
     # adaptive stlog - kicks up if min eig < min_tol, down if min eig > max_tol
-    x0 = np.array(
-        [0.5, 0.0, 10.0, 0.0, 0.0, 5.0, 10.0, 0.0, 0.0, -5.0, 10.0, 0.0],
-    )
-    rot_magnitude = 2
-    min_thurst = 0.0
-    max_thrust = 4.0
-    min_rise = -1
-    max_rise = 1
-    u_leader = np.array([1.0, 0.0, 0.0])
-    u0 = np.concatenate((u_leader, [4.0, -1.0, 0.0, 4.0, 1.0, 0.0]))
-    u_lb = np.concatenate(
-        (
-            u_leader,
-            [
-                min_thurst,
-                min_rise,
-                -rot_magnitude,
-                min_thurst,
-                min_rise,
-                -rot_magnitude,
-            ],
-        )
-    )
-    u_ub = np.concatenate(
-        (
-            u_leader,
-            [
-                max_thrust,
-                max_rise,
-                rot_magnitude,
-                max_thrust,
-                max_rise,
-                rot_magnitude,
-            ],
-        )
+    ms = planning.MinimumSnap(
+        5, [0, 0, 1, 1], planning.MinimumSnapAlgorithm.CONSTRAINED
     )
 
+    x0 = [np.r_[1.0, 0.0, 10.0], np.r_[0.0, 3.0, 10.0], np.r_[0.0, -3.0, 10.0]]
+    states_traj = []
+    inputs_traj = []
+    for it in x0:
+        pp = ms.generate(
+            np.linspace(it, it + np.array([50, 0, 0]), 10, axis=1),
+            np.r_[0:10] * 1000 * 0.05,
+        )
+        traj = pp.to_real_trajectory(1.0, np.r_[0:n_steps] * 0.05)
+        states_traj.append(traj.states)
+        inputs_traj.append(traj.inputs)
+
+    states_traj = np.stack(states_traj)
+    inputs_traj = np.stack(inputs_traj)
+    x0 = states_traj[:, :, 0].ravel()
+
+    rot_magnitude = 3.0
+    max_thrust = 12.0
+    u0 = inputs_traj[:, :, 0].ravel()
+    u_lb = np.tile(np.r_[0.0, np.full(3, -rot_magnitude)], 3)
+    u_ub = np.tile(np.r_[12.0, np.full(3, rot_magnitude)], 3)
     x = np.zeros((num_mdl.nx, n_steps))
     x[:, 0] = x0
 
     u = np.zeros((num_mdl.nu, n_steps))
-    u[0 : num_mdl.NU, :] = u_leader[:, None]
+    u_leader = inputs_traj[0, :, :]
+    u[0 : num_mdl.NU, :] = u_leader
     u[:, 0] = u0
 
     if anim:
@@ -90,13 +80,6 @@ def test(anim=False):
             idx: {"line": anim_ax.plot([], [])[0]} for idx in range(num_mdl.n_robots)
         }
 
-    # optim_hist = {}
-    # def con(a):
-    #     return np.array([a[1] / a[0], a[3] / a[2]])
-
-    # nlc = NonlinearConstraint(con, [-1e4, -1e4], [1e4, 1e4])
-
-    u_leader = np.tile(u_leader[..., None], [1, win_sz])
     min_problem = STLOGMinimizeProblem(stlog, STLOGOptions(dt=dt_stlog, window=win_sz))
     for i in tqdm.tqdm(range(1, n_steps)):
         problem = min_problem.make_problem(
@@ -105,15 +88,13 @@ def test(anim=False):
             dt,
             u_lb,
             u_ub,
-            id_const=(0, 1, 2),
+            id_const=tuple(range(10)),
         )
 
         soln = minimize(problem)
-        soln_u = soln.x[0, :]
+        soln_u = np.concatenate([u_leader[:, i], soln.x[0, num_mdl.NU :]])
         u[:, i] = soln_u
         x[:, i] = min_problem.forward_dynamics(x[:, i - 1], soln_u, dt)
-
-        x[::-4, i] = utils.wrap_to_pi(x[::-4, i])
 
         if anim:
             x_drawable = np.reshape(
@@ -144,7 +125,6 @@ def test(anim=False):
                 x[2 + idx * model.NX, :],
                 f"C{idx}",
             )
-        ax.set_zlim([8, 12])
 
         figs[0].savefig("data/stlog_planning.png")
         # figs[0].savefig("stlog_planning_for_go.png")

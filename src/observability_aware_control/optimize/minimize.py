@@ -34,6 +34,12 @@ def minimize(prob: minimize_problem.MinimizeProblem):
                 ..., id_mut
             ].ravel()
 
+        if callable(prob.constraints.fun):
+            constr = utils.separate_array_argument(
+                prob.constraints.fun, x_shape, id_const
+            )
+            prob.constraints.fun = lambda x: constr(u_const, x.reshape(-1, n_mut))
+
     else:
         pass
 
