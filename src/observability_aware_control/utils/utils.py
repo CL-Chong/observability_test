@@ -146,6 +146,122 @@ def wrap_to_pi(angle):
     return angle
 
 
+def cart_to_sph_3d(vector_3d: ArrayLike) -> jax.Array:
+    """returns an array of 3d vectors in spherical coordinates
+    Parameters
+    ----------
+    vector_3d: ArrayLike
+        array of input vectors of shape (3,n). x, y, z components taken along 0-axis.
+        ignores indices > 2 in the 0-axis if vector_3d.shape[0] > 3.
+    Returns
+    -------
+    jax.Array
+        array of shape (3,n). r, theta, phi components along 0-axis.
+    """
+    r = jnp.sqrt(vector_3d[0, :] ** 2 + vector_3d[1, :] ** 2 + vector_3d[2, :] ** 2)
+    theta = jnp.arctan2(
+        jnp.sqrt(vector_3d[0, :] ** 2 + vector_3d[1, :] ** 2), vector_3d[2, :]
+    )
+    phi = jnp.arctan2(vector_3d[1, :], vector_3d[0, :])
+    return jnp.stack((r, theta, phi), axis=0)
+
+
+def sph_to_cart_3d(vector_rtp: ArrayLike) -> jax.Array:
+    """returns an array of 3d vectors in spherical coordinates
+    Parameters
+    ----------
+    vector_rtp: ArrayLike
+        array of input vectors of size (3,n). r, theta, phi components taken along 0-axis.
+        ignores indices > 2 in the 0-axis if vector_3d.shape[0] > 3.
+    Returns
+    -------
+    jax.Array
+        array of size (3,n). x, y, z components along 0-axis.
+    """
+    x = vector_rtp[0, :] * jnp.sin(vector_rtp[1, :]) * jnp.cos(vector_rtp[2, :])
+    y = vector_rtp[0, :] * jnp.sin(vector_rtp[1, :]) * jnp.sin(vector_rtp[2, :])
+    z = vector_rtp[0, :] * jnp.cos(vector_rtp[1, :])
+    return jnp.stack((x, y, z), axis=0)
+
+
+def quat_to_eul(qs: ArrayLike) -> jax.Array:
+    """returns an array of 3d vectors in Euler angles
+    Parameters
+    ----------
+    qs: ArrayLike
+        array of input vectors of size (4,n). quarternion components taken along 0-axis.
+        ignores indices > 3 in the 0-axis if qs.shape[0] > 4.
+        convention: qs[3,:] denotes the real part
+        automatically normalises quarternion if qs is unnormalised
+    Returns
+    -------
+    jax.Array
+        array of size (3,n). phi, theta, psi components along 0-axis.
+    """
+    phi = jnp.arctan2(
+        2
+        * (qs[3, :] * qs[0, :] + qs[1, :] * qs[2, :])
+        / (qs[0, :] ** 2 + qs[1, :] ** 2 + qs[2, :] ** 2 + qs[3, :] ** 2),
+        1
+        - 2
+        * (qs[0, :] ** 2 + qs[1, :] ** 2)
+        / (qs[0, :] ** 2 + qs[1, :] ** 2 + qs[2, :] ** 2 + qs[3, :] ** 2),
+    )
+    theta = -np.pi / 2 + 2 * jnp.arctan2(
+        jnp.sqrt(
+            1
+            + 2
+            * (qs[3, :] * qs[1, :] - qs[0, :] * qs[2, :])
+            / (qs[0, :] ** 2 + qs[1, :] ** 2 + qs[2, :] ** 2 + qs[3, :] ** 2)
+        ),
+        jnp.sqrt(
+            1
+            - 2
+            * (qs[3, :] * qs[1, :] - qs[0, :] * qs[2, :])
+            / (qs[0, :] ** 2 + qs[1, :] ** 2 + qs[2, :] ** 2 + qs[3, :] ** 2)
+        ),
+    )
+    psi = jnp.arctan2(
+        2
+        * (qs[3, :] * qs[2, :] + qs[0, :] * qs[1, :])
+        / (qs[0, :] ** 2 + qs[1, :] ** 2 + qs[2, :] ** 2 + qs[3, :] ** 2),
+        1
+        - 2
+        * (qs[1, :] ** 2 + qs[2, :] ** 2)
+        / (qs[0, :] ** 2 + qs[1, :] ** 2 + qs[2, :] ** 2 + qs[3, :] ** 2),
+    )
+    return jnp.stack((phi, theta, psi), axis=0)
+
+
+def eul_to_quat(euls: ArrayLike) -> jax.Array:
+    """returns an array of quarternion in Euler angles
+    Parameters
+    ----------
+    qs: ArrayLike
+        array of input vectors of size (3,n). Euler angle components taken along 0-axis.
+        ignores indices > 3 in the 0-axis if qs.shape[0] > 4.
+        convention: phi = euls[0,:], theta = eu1s[1, :], psi = euls[2,:]
+    Returns
+    -------
+    jax.Array
+        array of size (4,n). quaternion components along 0-axis.
+        convention: qs[3,:] is the real part.
+    """
+    q3 = jnp.cos(euls[0, :] / 2) * jnp.cos(euls[1, :] / 2) * jnp.cos(
+        euls[2, :] / 2
+    ) + jnp.sin(euls[0, :] / 2) * jnp.sin(euls[1, :] / 2) * jnp.sin(euls[2, :] / 2)
+    q0 = jnp.sin(euls[0, :] / 2) * jnp.cos(euls[1, :] / 2) * jnp.cos(
+        euls[2, :] / 2
+    ) - jnp.cos(euls[0, :] / 2) * jnp.sin(euls[1, :] / 2) * jnp.sin(euls[2, :] / 2)
+    q1 = jnp.cos(euls[0, :] / 2) * jnp.sin(euls[1, :] / 2) * jnp.cos(
+        euls[2, :] / 2
+    ) + jnp.sin(euls[0, :] / 2) * jnp.cos(euls[1, :] / 2) * jnp.sin(euls[2, :] / 2)
+    q2 = jnp.cos(euls[0, :] / 2) * jnp.cos(euls[1, :] / 2) * jnp.sin(
+        euls[2, :] / 2
+    ) - jnp.sin(euls[0, :] / 2) * jnp.sin(euls[1, :] / 2) * jnp.cos(euls[2, :] / 2)
+    return jnp.stack((q0, q1, q2, q3), axis=0)
+
+
 def prefix_key(d: Dict[str, Any], prefix: str):
     return {f"{prefix}.{k}": v for k, v in d.items()}
 
