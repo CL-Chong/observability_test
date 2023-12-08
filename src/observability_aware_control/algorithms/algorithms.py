@@ -142,6 +142,20 @@ class STLOGMinimizeProblem:
         else:
             self.gradient = gradient
 
+        cons_grad = jax.jit(jax.jacfwd(self.constraint))
+        if opts.window > 1:
+            print("Precompiling constraint Jacobian...", end="")
+            tic = time.perf_counter()
+            self.cons_grad = cons_grad.lower(
+                jnp.zeros((opts.window, self._nu)),
+                jnp.zeros(self._nx),
+                0.2,
+            ).compile()
+            toc = time.perf_counter() - tic
+            print(f"Done in {toc}s")
+        else:
+            self.cons_grad = cons_grad
+
     @jitmember
     def objective(self, us, x, dt):
         xs = self.forward_dynamics(x, us, dt)
@@ -160,10 +174,10 @@ class STLOGMinimizeProblem:
         return jax.lax.scan(_update, init=x0, xs=(u, dt))[1]
 
     @jitmember
-    def lf_constraint(self, us, x, dt):
+    def constraint(self, us, x, dt):
         xs = self.forward_dynamics(x, us, dt)
         xs = jnp.moveaxis(xs.reshape(xs.shape[0], -1, 10)[:, :, 0:3], 1, 0)
-        z = xs[:, :, -1].ravel()
+        z = xs[1:, :, -1].ravel()
         dp = jnp.linalg.norm(xs[1:, ...] - xs[0, ...], axis=-1).ravel()
         return jnp.concatenate([dp, z])
 
@@ -180,9 +194,10 @@ class STLOGMinimizeProblem:
         problem.args = args
         problem.id_const = id_const
         problem.constraints = optimize.NonlinearConstraint(
-            lambda u: self.lf_constraint(u, x0, t),
-            lb=jnp.r_[jnp.full(u0.shape[0] * 2, 0.2), jnp.full(u0.shape[0] * 3, 9.5)],
-            ub=jnp.r_[jnp.full(u0.shape[0] * 2, 3.2), jnp.full(u0.shape[0] * 3, 10.5)],
+            lambda u: self.constraint(u, x0, t),
+            lb=jnp.r_[jnp.full(u0.shape[0] * 2, 0.01), jnp.full(u0.shape[0] * 2, 9.5)],
+            ub=jnp.r_[jnp.full(u0.shape[0] * 2, 3.2), jnp.full(u0.shape[0] * 2, 10.5)],
+            jac=lambda u: self.cons_grad(u, x0, t),
         )
         problem.jac = self.gradient
 
@@ -193,7 +208,7 @@ class STLOGMinimizeProblem:
             "gtol": 1e-8,
             "disp": False,
             "verbose": 0,
-            "maxiter": 100,
+            "maxiter": 150,
         }
 
         return problem

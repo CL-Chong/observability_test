@@ -33,17 +33,20 @@ def test(anim=False):
     order_psd = 1
 
     num_mdl = nummodels.MultiQuadrotor(3, 1.0)
-    win_sz = 10
+    win_sz = 20
     stlog = STLOG(num_mdl, order_psd, components=(10, 11, 20, 21))
     dt = 0.05
     dt_stlog = 0.2
-    n_steps = 1000
+    n_steps = 2000
     # adaptive stlog - kicks up if min eig < min_tol, down if min eig > max_tol
     ms = planning.MinimumSnap(
         5, [0, 0, 1, 1], planning.MinimumSnapAlgorithm.CONSTRAINED
     )
 
-    x0 = [np.r_[1.0, 0.0, 10.0], np.r_[0.0, 3.0, 10.0], np.r_[0.0, -3.0, 10.0]]
+    x0 = []
+    x0.append(np.r_[1.0, 0.0, 10.0])
+    x0.append(np.r_[0.0, 3.0, 10.0])
+    x0.append(np.r_[0.0, -3.0, 10.0])
     states_traj = []
     inputs_traj = []
     for it in x0:
@@ -60,8 +63,8 @@ def test(anim=False):
     x0 = states_traj[:, :, 0].ravel()
 
     u0 = inputs_traj[:, :, 0].ravel()
-    u_lb = np.tile(np.r_[0.0, -1, -1, -2.0], num_mdl.n_robots)
-    u_ub = np.tile(np.r_[12.0, 1, 1, 2.0], num_mdl.n_robots)
+    u_lb = np.tile(np.r_[0.0, -0.4, -0.4, -2.0], num_mdl.n_robots)
+    u_ub = np.tile(np.r_[11.0, 0.4, 0.4, 2.0], num_mdl.n_robots)
     x = np.zeros((num_mdl.nx, n_steps))
     x[:, 0] = x0
 
@@ -71,14 +74,16 @@ def test(anim=False):
     u[:, 0] = u0
 
     if anim:
-        anim, anim_ax = plt.subplots()
+        anim, anim_ax = plt.subplots(1, 2)
         plt.ioff()
 
         anim_data = {
-            idx: {"line": anim_ax.plot([], [])[0]} for idx in range(num_mdl.n_robots)
+            idx: {"line": [a.plot([], [])[0] for a in anim_ax]}
+            for idx in range(num_mdl.n_robots)
         }
 
     min_problem = STLOGMinimizeProblem(stlog, STLOGOptions(dt=dt_stlog, window=win_sz))
+    t = 0
     for i in tqdm.tqdm(range(1, n_steps)):
         problem = min_problem.make_problem(
             x[:, i - 1],
@@ -93,6 +98,7 @@ def test(anim=False):
         soln_u = np.concatenate([u_leader[:, i], soln.x[0, num_mdl.NU :]])
         u[:, i] = soln_u
         x[:, i] = min_problem.forward_dynamics(x[:, i - 1], soln_u, dt)
+        t += dt
 
         if anim:
             x_drawable = np.reshape(
@@ -101,13 +107,17 @@ def test(anim=False):
             for j in range(num_mdl.n_robots):
                 anim_data[j]["x"] = x_drawable[0, j, :]
                 anim_data[j]["y"] = x_drawable[1, j, :]
-                anim_data[j]["line"].set_data(anim_data[j]["x"], anim_data[j]["y"])
-            anim_ax.relim()
-            anim_ax.autoscale_view(True, True)
+                anim_data[j]["z"] = x_drawable[2, j, :]
+                anim_data[j].setdefault("t", []).append(t)
+                anim_data[j]["line"][0].set_data(anim_data[j]["x"], anim_data[j]["y"])
+                anim_data[j]["line"][1].set_data(anim_data[j]["t"], anim_data[j]["z"])
+            for a in anim_ax:
+                a.relim()
+                a.autoscale_view(True, True)
             anim.canvas.draw_idle()
             plt.pause(0.01)
 
-    np.savez("data/optimization_results.npz", states=x, inputs=u)
+    np.savez("data/optimization_results.npz", states=x, inputs=u, time=t)
 
     def plotting_simple(model, x):
         figs = {}

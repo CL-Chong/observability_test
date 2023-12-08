@@ -39,7 +39,14 @@ def minimize(prob: minimize_problem.MinimizeProblem):
                 prob.constraints.fun, x_shape, id_const
             )
             prob.constraints.fun = lambda x: constr(u_const, x.reshape(-1, n_mut))
-            tmp = prob.constraints.fun(prob.x0)
+
+            if callable(prob.constraints.jac):
+                cjac = utils.separate_array_argument(
+                    prob.constraints.jac, x_shape, id_const
+                )
+                prob.constraints.jac = lambda x: cjac(u_const, x.reshape(-1, n_mut))[
+                    ..., id_mut
+                ].reshape(-1, x_shape[0] * n_mut)
 
     else:
         pass
