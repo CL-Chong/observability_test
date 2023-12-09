@@ -6,13 +6,15 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
 
-from src.observability_aware_control.models import multi_quadrotor
 from src.observability_aware_control import planning
 from src.observability_aware_control.algorithms import (
     STLOG,
-    CooperativeOPCProblem,
     CooperativeLocalizationOptions,
+    CooperativeOPCProblem,
 )
+from src.observability_aware_control.models import multi_quadrotor
+from src.observability_aware_control import utils
+
 
 # testing list: (X) = bad, (1/2) = not sure, (O) = good
 # nonlinear constraints (X)
@@ -25,7 +27,7 @@ from src.observability_aware_control.algorithms import (
 jax.config.update("jax_enable_x64", True)
 
 
-def test(anim=False):
+def main():
     order = 1
 
     mdl = multi_quadrotor.MultiQuadrotor(3, 1.0)
@@ -54,27 +56,15 @@ def test(anim=False):
 
     states_traj = np.stack(states_traj)
     inputs_traj = np.stack(inputs_traj)
-    x0 = states_traj[:, :, 0].ravel()
 
-    u0 = inputs_traj[:, :, 0].ravel()
     u_lb = jnp.tile(jnp.r_[0.0, -0.4, -0.4, -2.0], mdl.n_robots)
     u_ub = jnp.tile(jnp.r_[11.0, 0.4, 0.4, 2.0], mdl.n_robots)
-    x = np.zeros((mdl.nx, n_steps))
-    x[:, 0] = x0
+    x = np.zeros((n_steps, mdl.nx))
+    u = np.zeros((n_steps, mdl.nu))
+    x[0, :] = states_traj[:, :, 0].ravel()
+    u[0, :] = inputs_traj[:, :, 0].ravel()
 
-    u = np.zeros((mdl.nu, n_steps))
     u_leader = inputs_traj[0, :, :]
-    u[0 : mdl.robot_nu, :] = u_leader
-    u[:, 0] = u0
-
-    if anim:
-        anim, anim_ax = plt.subplots(1, 2)
-        plt.ioff()
-
-        anim_data = {
-            idx: {"line": [a.plot([], [])[0] for a in anim_ax]}
-            for idx in range(mdl.n_robots)
-        }
 
     obs_comps = (10, 11, 12, 20, 21, 22)
     opts = CooperativeLocalizationOptions(
@@ -96,49 +86,43 @@ def test(anim=False):
     )
     assert opts.optim_options is not None
     min_problem = CooperativeOPCProblem(stlog, opts)
-    t = 0
     status = []
     nit = []
     fun_hists = []
-    time = [t]
-    for i in tqdm.tqdm(range(1, n_steps)):
-        soln = min_problem.minimize(
-            x[:, i - 1],
-            jnp.broadcast_to(u[:, i - 1], (win_sz, len(u[:, i - 1]))),
-            dt,
-        )
-        soln_u = np.concatenate([u_leader[:, i], soln.x[0, mdl.robot_nu :]])
-        tqdm.tqdm.write(
-            f"f(x): {soln.fun} Optimality: {soln.optimality} gnorm: {np.linalg.norm(soln.grad)} violation: {soln.constr_violation}"
-        )
-        status.append(soln.status)
-        nit.append(soln.nit)
-        fun_hist = np.full(opts.optim_options["maxiter"], np.inf)
-        fun_hist[0 : len(soln.fun_hist)] = np.asarray(soln.fun_hist)
-        fun_hists.append(np.array(fun_hist))
-        u[:, i] = soln_u
-        x[:, i] = x[:, i - 1] + dt * min_problem.stlog.model.dynamics(
-            x[:, i - 1], soln_u
-        )
-        t += dt
-        time.append(t)
+    time = np.arange(0, n_steps) * dt
 
-        if anim:
-            x_drawable = np.reshape(
-                x[:, 0:i], (mdl.robot_nx, mdl.n_robots, i), order="F"
+    anim = utils.anim_utils.Animated3DTrajectory(mdl.n_robots)
+
+    with plt.ion():
+        for i in tqdm.tqdm(range(1, n_steps)):
+            soln = min_problem.minimize(
+                x[i - 1, :],
+                jnp.broadcast_to(u[i - 1, :], (win_sz, len(u[i - 1, :]))),
+                dt,
             )
-            for j in range(mdl.n_robots):
-                anim_data[j]["x"] = x_drawable[0, j, :]
-                anim_data[j]["y"] = x_drawable[1, j, :]
-                anim_data[j]["z"] = x_drawable[2, j, :]
-                anim_data[j].setdefault("t", []).append(t)
-                anim_data[j]["line"][0].set_data(anim_data[j]["x"], anim_data[j]["y"])
-                anim_data[j]["line"][1].set_data(anim_data[j]["t"], anim_data[j]["z"])
-            for a in anim_ax:
-                a.relim()
-                a.autoscale_view(True, True)
-            anim.canvas.draw_idle()
-            plt.pause(0.01)
+            soln_u = np.concatenate([u_leader[:, i], soln.x[0, mdl.robot_nu :]])
+
+            status.append(soln.status)
+            nit.append(soln.nit)
+            fun_hist = np.full(opts.optim_options["maxiter"], np.inf)
+            fun_hist[0 : len(soln.fun_hist)] = np.asarray(soln.fun_hist)
+            fun_hists.append(np.array(fun_hist))
+            u[i, :] = soln_u
+            x[i, :] = x[i - 1, :] + dt * min_problem.stlog.model.dynamics(
+                x[i - 1, :], soln_u
+            )
+
+            plt_data = np.reshape(x[0:i, :], (i, mdl.n_robots, mdl.robot_nx))
+            anim.annotation = (
+                f"f(x): {soln.fun:.4}\nOptimality: {soln.optimality:.4}\ngnorm:"
+                f" {np.linalg.norm(soln.grad):.4}\nviolation: {soln.constr_violation:.4}"
+            )
+            anim.t = time[0:i]
+            for idx in range(mdl.n_robots):
+                anim.x[idx] = plt_data[:, idx, 0]
+                anim.y[idx] = plt_data[:, idx, 1]
+                anim.z[idx] = plt_data[:, idx, 2]
+            plt.pause(1e-3)
 
     np.savez(
         "data/optimization_results.npz",
@@ -150,29 +134,22 @@ def test(anim=False):
         fun_hist=np.asarray(fun_hists),
     )
 
-    def plotting_simple(model, x):
-        figs = {}
-        figs[0], ax = plt.subplots(subplot_kw={"projection": "3d"})
-        ax.plot(x[0, :], x[1, :], x[2, :], "C9")
-        ax.set_xlabel("X (m)")
-        ax.set_ylabel("Y (m)")
-        ax.set_zlabel("Z (m)")
-        for idx in range(1, model.n_robots):  # Vary vehicles
-            ax.plot(
-                x[0 + idx * model.robot_nx, :],
-                x[1 + idx * model.robot_nx, :],
-                x[2 + idx * model.robot_nx, :],
-                f"C{idx}",
-            )
+    figs = {}
+    figs[0], ax = plt.subplots(subplot_kw={"projection": "3d"})
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
+    ax.set_zlabel("Z (m)")
 
-        figs[0].savefig("data/stlog_planning.png")
-        # figs[0].savefig("stlog_planning_for_go.png")
+    plt_data = np.reshape(x, (-1, mdl.n_robots, mdl.robot_nx))
+    for idx in range(mdl.n_robots):  # Vary vehicles
+        ax.plot(
+            plt_data[:, idx, 0], plt_data[:, idx, 1], plt_data[:, idx, 2], f"C{idx}"
+        )
 
-        # plt.show()
-
-    plotting_simple(mdl, x)
+    plt.show()
 
     return
 
 
-print(test(anim=True))
+if __name__ == "__main__":
+    main()
