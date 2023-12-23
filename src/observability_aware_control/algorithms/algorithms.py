@@ -127,38 +127,17 @@ class STLOGMinimizeProblem:
         self._nu = self._stlog.nu
         self._dt_stlog = opts.dt
 
-        gradient = jax.jit(jax.grad(self.objective))
-        if opts.window > 1:
-            print("Precompiling gradient...", end="")
-            tic = time.perf_counter()
+        self.gradient = jax.jit(jax.grad(self.objective))
 
-            self.gradient = gradient.lower(
-                jnp.zeros((opts.window, self._nu)),
-                jnp.zeros(self._nx),
-                0.2,
-            ).compile()
-            toc = time.perf_counter() - tic
-            print(f"Done in {toc}s")
-        else:
-            self.gradient = gradient
+        self.cons_grad = jax.jit(jax.jacfwd(self.constraint))
 
-        cons_grad = jax.jit(jax.jacfwd(self.constraint))
-        if opts.window > 1:
-            print("Precompiling constraint Jacobian...", end="")
-            tic = time.perf_counter()
-            self.cons_grad = cons_grad.lower(
-                jnp.zeros((opts.window, self._nu)),
-                jnp.zeros(self._nx),
-                0.2,
-            ).compile()
-            toc = time.perf_counter() - tic
-            print(f"Done in {toc}s")
-        else:
-            self.cons_grad = cons_grad
+    @property
+    def stlog(self):
+        return self._stlog
 
     @jitmember
     def objective(self, us, x, dt):
-        xs = self.forward_dynamics(x, us, dt)
+        xs = forward_dynamics(self._stlog.dynamics, x, us, dt)
         dt = jnp.broadcast_to(self._dt_stlog, us.shape[0])
         return jnp.sum(jax.vmap(self._stlog.evaluate)(xs, us, dt))
 
@@ -208,23 +187,14 @@ class STLOGMinimizeProblem:
             "gtol": 1e-8,
             "disp": False,
             "verbose": 0,
-            "maxiter": 150,
+            "maxiter": 100,
         }
 
         return problem
 
 
-@functools.partial(jax.jit, static_argnames=("sys", "without_observation", "axis"))
-def numsolve_sigma(
-    sys,
-    x0,
-    u,
-    dt,
-    axis=None,
-    f_args=None,
-    h_args=None,
-    without_observation=False,
-):
+@functools.partial(jax.jit, static_argnames=("dynamics"))
+def forward_dynamics(dynamics, x0, u, dt):
     """Run forward simulation of a dynamical system
 
     Details
@@ -242,52 +212,21 @@ def numsolve_sigma(
         A sys.nu-by-len(dt) array of control inputs
     dt : ArrayLike
         An array of time steps
-    axis: int
-        Axis that defines each vector-valued input
-    f_args : ArrayLike, optional
-        Additional (time-dependent) vector-valued inputs for sys.dynamics specified by a
-        *-by-len(dt) array, by default None
-    h_args : ArrayLike, optional
-        Additional (time-dependent) vector-valued inputs for sys.observation specified
-        by a *-by-len(dt) array, by default None
-    without_observation: bool, optional
-        If true, the observation equation will not be run on the states, and only the
-        states trajectory will be returned
-
     Returns
     -------
     Tuple[jnp.array, jnp.array] | jnp.array
         The state and optionally observation trajectory
     """
 
-    def _process_in_axis(var):
-        return jnp.moveaxis(var, axis, 0) if axis is not None else var
-
-    def _process_out_axis(var):
-        return jnp.moveaxis(var, 0, axis) if axis is not None else var
-
     def _update(x_op, tup):
-        dt, *rem = tup
-        dx = sys.dynamics(x_op, *rem)
-        return x_op + dt * dx, x_op
+        u, dt = tup
+        x_new = x_op + dt * dynamics(x_op, u)
+        return x_op, x_new
 
-    u = _process_in_axis(u)
-    if f_args is None:
-        xs = (dt, u)
-    else:
-        xs = (dt, u, _process_in_axis(f_args))
-
-    _, x = jax.lax.scan(_update, init=x0, xs=xs)
-
-    if without_observation:
-        return _process_out_axis(x)
-
-    if h_args is None:
-        y = sys.observation(x)
-    else:
-        y = sys.observation(x, _process_in_axis(h_args))
-
-    return _process_out_axis(x), _process_out_axis(y)
+    u = jnp.atleast_2d(u)
+    dt = jnp.broadcast_to(dt, u.shape[0])
+    _, x = jax.lax.scan(_update, init=x0, xs=(u, dt))
+    return x
 
 
 @functools.partial(jax.jit, static_argnames=("sys", "eps", "axis"))
@@ -298,8 +237,8 @@ def _numlog(sys, x0, u, dt, eps, axis, perturb_axis, f_args, h_args):
 
     @functools.partial(jax.vmap, out_axes=2)
     def _perturb(x0_plus, x0_minus):
-        _, yi_plus = numsolve_sigma(sys, x0_plus, u, dt, axis, f_args, h_args)
-        _, yi_minus = numsolve_sigma(sys, x0_minus, u, dt, axis, f_args, h_args)
+        _, yi_plus = forward_dynamics(sys, x0_plus, u, dt, axis, f_args, h_args)
+        _, yi_minus = forward_dynamics(sys, x0_minus, u, dt, axis, f_args, h_args)
         return yi_plus - yi_minus
 
     perturb_bases = jnp.eye(x0.size)[perturb_axis]

@@ -35,26 +35,25 @@ def test(anim=False):
     num_mdl = nummodels.MultiQuadrotor(3, 1.0)
     win_sz = 20
     stlog = STLOG(num_mdl, order_psd, components=(10, 11, 20, 21))
-    dt = 0.05
+    dt = 0.2
     dt_stlog = 0.2
-    n_steps = 2000
+    n_steps = 1000
+    n_splits = 2
     # adaptive stlog - kicks up if min eig < min_tol, down if min eig > max_tol
     ms = planning.MinimumSnap(
         5, [0, 0, 1, 1], planning.MinimumSnapAlgorithm.CONSTRAINED
     )
 
-    x0 = []
-    x0.append(np.r_[1.0, 0.0, 10.0])
-    x0.append(np.r_[0.0, 3.0, 10.0])
-    x0.append(np.r_[0.0, -3.0, 10.0])
+    x0 = [np.r_[1.0, 0.0, 10.0], np.r_[0.0, 3.0, 10.0], np.r_[0.0, -3.0, 10.0]]
     states_traj = []
     inputs_traj = []
     for it in x0:
-        pp = ms.generate(
-            np.linspace(it, it + np.array([5000, 0, 0]), 10, axis=1),
-            np.r_[0:10] * 1000 * 0.05,
+        p_ref = np.linspace(
+            it, it + np.array([n_steps * 2.5 * dt, 0, 0]), n_splits, axis=1
         )
-        traj = pp.to_real_trajectory(1.0, np.r_[0:n_steps] * 0.05)
+        t_ref = np.linspace(0, n_steps * dt, n_splits)
+        pp = ms.generate(p_ref, t_ref)
+        traj = pp.to_real_trajectory(1.0, np.r_[0:n_steps] * dt)
         states_traj.append(traj.states)
         inputs_traj.append(traj.inputs)
 
@@ -97,7 +96,7 @@ def test(anim=False):
         soln = minimize(problem)
         soln_u = np.concatenate([u_leader[:, i], soln.x[0, num_mdl.NU :]])
         u[:, i] = soln_u
-        x[:, i] = min_problem.forward_dynamics(x[:, i - 1], soln_u, dt)
+        x[:, i] = x[:, i - 1] + dt * min_problem.stlog.dynamics(x[:, i - 1], soln_u)
         t += dt
 
         if anim:
