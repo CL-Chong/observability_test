@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib import animation
 
-N_POS_COMPS = 2
+N_POS_COMPS = 3
 
 
 def minmax(v, *args):
@@ -36,7 +36,7 @@ def plot_3d_trajectory(states):
     xlim = ax.get_xlim()
     ylim = ax.get_ylim()
     # ax.set_zlabel("Z (m)")
-    # ax.set_zlim([8, 12])
+    ax.set_zlim([8, 12])
     return xlim, ylim
 
 
@@ -61,11 +61,11 @@ def animate_3d_trajectory(states, xlim, ylim):
 
     def update(frame):
         for j in range(n_robots):
-            comps = map(
+            comps, z = map(
                 np.squeeze, np.split(states[:frame, j, :], N_POS_COMPS, axis=-1)
             )
             ln[j].set_data(*comps)
-            # ln[j].set_3d_properties(z)
+            ln[j].set_3d_properties(z)
 
         return ln
 
@@ -78,9 +78,9 @@ def main():
     data = parse_cli()
 
     states = data["states"].T
-    states = states.reshape(-1, 3, 3)[..., 0:2]
+    states = states.reshape(-1, 3, 10)[..., 0:N_POS_COMPS]
     xlim, ylim = plot_3d_trajectory(states)
-    _ = animate_3d_trajectory(states, xlim, ylim)
+    # _ = animate_3d_trajectory(states, xlim, ylim)
     plt.show()
 
 

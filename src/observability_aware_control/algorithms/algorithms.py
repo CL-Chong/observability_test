@@ -2,11 +2,13 @@ import dataclasses
 import functools
 import inspect
 import time
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 from scipy import optimize, special
+
+from observability_aware_control.models import model_base
 
 from .. import utils
 from ..optimize import minimize_problem
@@ -18,6 +20,42 @@ NU = 2
 jitmember = functools.partial(jax.jit, static_argnames=("self",))
 
 
+@functools.partial(jax.jit, static_argnames=("dynamics"))
+def forward_dynamics(dynamics, x0, u, dt):
+    """Run forward simulation of a dynamical system
+
+    Details
+    -------
+    This function enables time-varying parameters (known beforehand) to be passed in,
+    whereas constant parameters are intended to be put into the sys object
+
+    Parameters
+    ----------
+    sys : ModelBase
+        An object satisfying the ModelBase Interface
+    x0 : ArrayLike
+        Initial state
+    u : ArrayLike
+        A sys.nu-by-len(dt) array of control inputs
+    dt : ArrayLike
+        An array of time steps
+    Returns
+    -------
+    Tuple[jnp.array, jnp.array] | jnp.array
+        The state and optionally observation trajectory
+    """
+
+    def _update(x_op, tup):
+        u, dt = tup
+        x_new = x_op + dt * dynamics(x_op, u)
+        return x_new, x_new
+
+    u = jnp.atleast_2d(u)
+    dt = jnp.broadcast_to(dt, u.shape[0])
+    _, x = jax.lax.scan(_update, init=x0, xs=(u, dt))
+    return x
+
+
 def _default_stlog_metric(x):
     return -jnp.linalg.norm(x, -2)
 
@@ -26,7 +64,9 @@ def _default_stlog_metric(x):
 class STLOGOptions:
     dt: float
     window: int = dataclasses.field(default=1)
-    id_const: Optional[Tuple[int, ...]] = dataclasses.field(default=None)
+    id_const: Tuple[int, ...] = dataclasses.field(default=())
+    ub: jax.Array = dataclasses.field(default=-jnp.inf)
+    lb: jax.Array = dataclasses.field(default=jnp.inf)
 
 
 def lfh_impl(fun, vector_field, x, u):
@@ -58,14 +98,21 @@ def _lie_derivative(fun, vector_field, order, proj=None):
 
 
 class STLOG:
-    def __init__(self, mdl, order, metric=_default_stlog_metric, components=()):
+    def __init__(
+        self,
+        mdl: model_base.ModelBase,
+        order,
+        dt,
+        metric=_default_stlog_metric,
+        components=(),
+    ):
         self._order = order
         self._order_seq = jnp.arange(order + 1)
+        self._model = mdl
 
-        self._observation = mdl.observation
-        self._dynamics = mdl.dynamics
         self._nx = mdl.nx
         self._nu = mdl.nu
+        self._dt_stlog = dt
         if components:
             id_mut = jnp.asarray(components, dtype=jnp.int32)
             id_const = utils.complementary_indices(self._nx, id_mut)
@@ -79,45 +126,39 @@ class STLOG:
             proj = jax.jacfwd
 
         self._dalfh_f = list(
-            _lie_derivative(self.observation, self.dynamics, order, proj)
+            _lie_derivative(self.model.observation, self.model.dynamics, order, proj)
         )
         self._facts = jnp.asarray(special.factorial(self._order_seq, exact=True))
 
         self._metric = metric
 
     @property
+    def model(self):
+        return self._model
+
+    @property
     def nx(self):
-        return self._nx
+        return self.model.nx
 
     @property
     def nu(self):
-        return self._nu
+        return self.model.nu
 
-    @property
-    def observation(self):
-        return self._observation
-
-    @property
-    def dynamics(self):
-        return self._dynamics
-
-    def _stlog(self, x, u, stlog_t):
+    def evaluate(self, x, u):
         dalfh = jnp.stack(jax.tree_util.tree_map(lambda it: it(x, u), self._dalfh_f))
         # dalfh = jnp.stack([it(x, u) for it in self._dalfh_f])
 
         a, b = jnp.ix_(self._order_seq, self._order_seq)
         k = a + b + 1
-        coeff = stlog_t**k / (self._facts[a] * self._facts[b] * k)
+        coeff = self._dt_stlog**k / (self._facts[a] * self._facts[b] * k)
         coeff = jnp.expand_dims(coeff, range(2, 4))
 
         inner = dalfh[a].swapaxes(3, 2) @ dalfh[b]
-        return (coeff * inner).sum(axis=(0, 1))
+        res = (coeff * inner).sum(axis=(0, 1))
 
-    @jitmember
-    def evaluate(self, x, u, t):
         if self._metric is not None:
-            return self._metric(self._stlog(x, u, t))
-        return self._stlog(x, u, t)
+            return self._metric(res)
+        return res
 
 
 class STLOGMinimizeProblem:
@@ -130,59 +171,42 @@ class STLOGMinimizeProblem:
         self.gradient = jax.jit(jax.grad(self.objective))
 
         self.cons_grad = jax.jit(jax.jacfwd(self.constraint))
+        self._id_const = jnp.asarray(opts.id_const, dtype=jnp.int32)
+        self._id_mut = utils.complementary_indices(self._nu, self._id_const)
+        self._n_mut = len(self._id_mut)
 
-    @property
-    def stlog(self):
-        return self._stlog
+        def objective(us, x, dt):
+            xs = forward_dynamics(self.stlog.model.dynamics, x, us, dt)
+            return jnp.sum(jax.vmap(self.stlog.evaluate)(xs, us))
 
-    @jitmember
-    def objective(self, us, x, dt):
-        xs = forward_dynamics(self._stlog.dynamics, x, us, dt)
-        dt = jnp.broadcast_to(self._dt_stlog, us.shape[0])
-        return jnp.sum(jax.vmap(self._stlog.evaluate)(xs, us, dt))
-
-    @jitmember
-    def forward_dynamics(self, x0, u, dt):
-        def _update(x_op, tup):
-            u, dt = tup
-            x_new = x_op + dt * self._stlog.dynamics(x_op, u)
-            return x_new, x_new
-
-        u = jnp.atleast_2d(u)
-        dt = jnp.broadcast_to(dt, u.shape[0])
-        return jax.lax.scan(_update, init=x0, xs=(u, dt))[1]
-
-    @jitmember
-    def constraint(self, us, x, dt):
-        xs = self.forward_dynamics(x, us, dt)
-        xs = jnp.moveaxis(xs.reshape(xs.shape[0], -1, 10)[:, :, 0:3], 1, 0)
-        z = xs[1:, :, -1].ravel()
-        dp = jnp.linalg.norm(xs[1:, ...] - xs[0, ...], axis=-1).ravel()
-        return jnp.concatenate([dp, z])
-
-    def make_problem(self, x0, u0, t, u_lb, u_ub, id_const):
-        # log_scale still in testing
-        # if max(abs(np.concatenate((u0, u_lb, u_ub)))) * t > 1.0:
-        #     print(
-        #         f"Warning: max(|u*t|) = {max(abs(np.concatenate((u0,u_lb,u_ub))))*t} > 1. STLOG convergence is not guaranteed."
-        #     )
-        u0, u_lb, u_ub = jnp.broadcast_arrays(u0, u_lb, u_ub)
-        args = (x0, t)
-
-        problem = minimize_problem.MinimizeProblem(self.objective, u0)
-        problem.args = args
-        problem.id_const = id_const
-        problem.constraints = optimize.NonlinearConstraint(
-            lambda u: self.constraint(u, x0, t),
-            lb=jnp.r_[jnp.full(u0.shape[0] * 2, 0.01), jnp.full(u0.shape[0] * 2, 9.5)],
-            ub=jnp.r_[jnp.full(u0.shape[0] * 2, 3.2), jnp.full(u0.shape[0] * 2, 10.5)],
-            jac=lambda u: self.cons_grad(u, x0, t),
+        self._u_shape = (opts.window, self._nu)
+        self._fun = utils.separate_array_argument(
+            objective, self._u_shape, self._id_mut
         )
-        problem.jac = self.gradient
+        self.gradient = jax.jit(jax.grad(self.objective))
 
-        problem.bounds = optimize.Bounds(u_lb, u_ub)  # type: ignore
-        problem.method = "trust-constr"
-        problem.options = {
+        def constraint(us, x, dt):
+            xs = forward_dynamics(self.stlog.model.dynamics, x, us, dt)
+            pos = xs.reshape(xs.shape[0], -1, 10)[:, :, 0:3]
+            dp = pos[:, 1:, :] - pos[:, [0], :]
+            dp_nrm = (dp * dp).sum(axis=-1).ravel()
+            return dp_nrm
+
+        self._cons = utils.separate_array_argument(
+            constraint, self._u_shape, self._id_mut
+        )
+        self.cons_grad = jax.jit(jax.jacfwd(self.constraint))
+        self._u_lb = jnp.broadcast_to(opts.lb, self._u_shape)[..., self._id_mut].ravel()
+        self._u_ub = jnp.broadcast_to(opts.ub, self._u_shape)[..., self._id_mut].ravel()
+
+        self.problem = minimize_problem.MinimizeProblem(
+            self.objective, jnp.zeros(self._u_shape)
+        )
+        self.problem.bounds = optimize.Bounds(self._u_lb, self._u_ub)  # type: ignore
+
+        self.problem.jac = self.gradient
+        self.problem.method = "trust-constr"
+        self.problem.options = {
             "xtol": 1e-4,
             "gtol": 1e-8,
             "disp": False,
@@ -190,55 +214,52 @@ class STLOGMinimizeProblem:
             "maxiter": 100,
         }
 
-        return problem
+    @property
+    def stlog(self):
+        return self._stlog
 
+    @jitmember
+    def objective(self, u_mut, u_const, x, dt):
+        return self._fun(u_mut.reshape(-1, self._n_mut), u_const, x, dt)
 
-@functools.partial(jax.jit, static_argnames=("dynamics"))
-def forward_dynamics(dynamics, x0, u, dt):
-    """Run forward simulation of a dynamical system
+    @jitmember
+    def constraint(self, u_mut, u_const, x, dt):
+        return self._cons(u_mut.reshape(-1, self._n_mut), u_const, x, dt)
 
-    Details
-    -------
-    This function enables time-varying parameters (known beforehand) to be passed in,
-    whereas constant parameters are intended to be put into the sys object
+    def minimize(self, x0, u0, t):
+        if self.problem is None:
+            raise ValueError("Unconfigured problem")
+        self._u_const = u0[..., self._id_const]
+        self.problem.x0 = u0[..., self._id_mut].ravel()
+        self.problem.args = (self._u_const, x0, t)
+        self.problem.constraints = optimize.NonlinearConstraint(
+            lambda u: self.constraint(u, *self.problem.args),
+            lb=jnp.full(u0.shape[0] * 2, 0.01),
+            ub=jnp.full(u0.shape[0] * 2, 10.0),
+            jac=lambda u: self.cons_grad(u, *self.problem.args),
+        )
+        prob_dict = vars(self.problem)
+        soln = optimize.minimize(**prob_dict)
 
-    Parameters
-    ----------
-    sys : ModelBase
-        An object satisfying the ModelBase Interface
-    x0 : ArrayLike
-        Initial state
-    u : ArrayLike
-        A sys.nu-by-len(dt) array of control inputs
-    dt : ArrayLike
-        An array of time steps
-    Returns
-    -------
-    Tuple[jnp.array, jnp.array] | jnp.array
-        The state and optionally observation trajectory
-    """
-
-    def _update(x_op, tup):
-        u, dt = tup
-        x_new = x_op + dt * dynamics(x_op, u)
-        return x_op, x_new
-
-    u = jnp.atleast_2d(u)
-    dt = jnp.broadcast_to(dt, u.shape[0])
-    _, x = jax.lax.scan(_update, init=x0, xs=(u, dt))
-    return x
+        x = soln.x.reshape(-1, self._n_mut)  # type: ignore
+        soln.x = utils.combine_array(
+            self._u_shape, self._u_const, x, self._id_const, self._id_mut  # type: ignore
+        )
+        return soln
 
 
 @functools.partial(jax.jit, static_argnames=("sys", "eps", "axis"))
-def _numlog(sys, x0, u, dt, eps, axis, perturb_axis, f_args, h_args):
+def _numlog(sys, x0, u, dt, eps, axis, perturb_axis):
     if perturb_axis is None:
         perturb_axis = jnp.arange(0, sys.nx)
     perturb_axis = jnp.asarray(perturb_axis)
 
+    observation = jax.vmap(sys.observation)
+
     @functools.partial(jax.vmap, out_axes=2)
     def _perturb(x0_plus, x0_minus):
-        _, yi_plus = forward_dynamics(sys, x0_plus, u, dt, axis, f_args, h_args)
-        _, yi_minus = forward_dynamics(sys, x0_minus, u, dt, axis, f_args, h_args)
+        _, yi_plus = observation(forward_dynamics(sys.dynamics, x0_plus, u, dt))
+        _, yi_minus = observation(forward_dynamics(sys.dynamics, x0_minus, u, dt))
         return yi_plus - yi_minus
 
     perturb_bases = jnp.eye(x0.size)[perturb_axis]

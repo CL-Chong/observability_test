@@ -1,7 +1,7 @@
 import dataclasses
 from typing import Any, Callable, Dict, Literal, Optional, Tuple, Union
 
-from numpy.typing import NDArray
+from jax.typing import ArrayLike
 from scipy import optimize
 
 Method = Union[
@@ -34,8 +34,7 @@ class MinimizeProblem:
 
     fun: Callable
 
-    x0: NDArray
-    id_const: Tuple[int, ...] = dataclasses.field(default=())
+    x0: ArrayLike
 
     args: Tuple[Any, ...] = dataclasses.field(default=())
     bounds: Optional[optimize.Bounds] = dataclasses.field(default=None)

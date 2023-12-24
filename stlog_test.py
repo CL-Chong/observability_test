@@ -34,9 +34,9 @@ def test(anim=False):
 
     num_mdl = nummodels.MultiQuadrotor(3, 1.0)
     win_sz = 20
-    stlog = STLOG(num_mdl, order_psd, components=(10, 11, 20, 21))
     dt = 0.2
     dt_stlog = 0.2
+    stlog = STLOG(num_mdl, order_psd, dt_stlog, components=(10, 11, 20, 21))
     n_steps = 1000
     n_splits = 2
     # adaptive stlog - kicks up if min eig < min_tol, down if min eig > max_tol
@@ -62,14 +62,14 @@ def test(anim=False):
     x0 = states_traj[:, :, 0].ravel()
 
     u0 = inputs_traj[:, :, 0].ravel()
-    u_lb = np.tile(np.r_[0.0, -0.4, -0.4, -2.0], num_mdl.n_robots)
-    u_ub = np.tile(np.r_[11.0, 0.4, 0.4, 2.0], num_mdl.n_robots)
+    u_lb = jnp.tile(jnp.r_[0.0, -0.4, -0.4, -2.0], num_mdl.n_robots)
+    u_ub = jnp.tile(jnp.r_[11.0, 0.4, 0.4, 2.0], num_mdl.n_robots)
     x = np.zeros((num_mdl.nx, n_steps))
     x[:, 0] = x0
 
     u = np.zeros((num_mdl.nu, n_steps))
     u_leader = inputs_traj[0, :, :]
-    u[0 : num_mdl.NU, :] = u_leader
+    u[0 : num_mdl.robot_nu, :] = u_leader
     u[:, 0] = u0
 
     if anim:
@@ -81,27 +81,29 @@ def test(anim=False):
             for idx in range(num_mdl.n_robots)
         }
 
-    min_problem = STLOGMinimizeProblem(stlog, STLOGOptions(dt=dt_stlog, window=win_sz))
+    min_problem = STLOGMinimizeProblem(
+        stlog,
+        STLOGOptions(
+            dt=dt_stlog, window=win_sz, id_const=tuple(range(4)), lb=u_lb, ub=u_ub
+        ),
+    )
     t = 0
     for i in tqdm.tqdm(range(1, n_steps)):
-        problem = min_problem.make_problem(
+        soln = min_problem.minimize(
             x[:, i - 1],
             jnp.broadcast_to(u[:, i - 1], (win_sz, len(u[:, i - 1]))),
             dt,
-            u_lb,
-            u_ub,
-            id_const=tuple(range(4)),
         )
-
-        soln = minimize(problem)
-        soln_u = np.concatenate([u_leader[:, i], soln.x[0, num_mdl.NU :]])
+        soln_u = np.concatenate([u_leader[:, i], soln.x[0, num_mdl.robot_nu :]])
         u[:, i] = soln_u
-        x[:, i] = x[:, i - 1] + dt * min_problem.stlog.dynamics(x[:, i - 1], soln_u)
+        x[:, i] = x[:, i - 1] + dt * min_problem.stlog.model.dynamics(
+            x[:, i - 1], soln_u
+        )
         t += dt
 
         if anim:
             x_drawable = np.reshape(
-                x[:, 0:i], (num_mdl.NX, num_mdl.n_robots, i), order="F"
+                x[:, 0:i], (num_mdl.robot_nx, num_mdl.n_robots, i), order="F"
             )
             for j in range(num_mdl.n_robots):
                 anim_data[j]["x"] = x_drawable[0, j, :]
@@ -127,9 +129,9 @@ def test(anim=False):
         ax.set_zlabel("Z (m)")
         for idx in range(1, model.n_robots):  # Vary vehicles
             ax.plot(
-                x[0 + idx * model.NX, :],
-                x[1 + idx * model.NX, :],
-                x[2 + idx * model.NX, :],
+                x[0 + idx * model.robot_nx, :],
+                x[1 + idx * model.robot_nx, :],
+                x[2 + idx * model.robot_nx, :],
                 f"C{idx}",
             )
 
