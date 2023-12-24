@@ -6,9 +6,7 @@ import jax.numpy as jnp
 from . import model_base, quadrotor
 
 
-class MultiQuadrotor(model_base.ModelBase):
-    NX = quadrotor.NX
-    NU = quadrotor.NU
+class MultiQuadrotor(model_base.MRSBase):
     DIM_ATT_OBS = 4
     DIM_BRNG_OBS = 2
 
@@ -17,21 +15,20 @@ class MultiQuadrotor(model_base.ModelBase):
         self._mass = jnp.broadcast_to(mass, n_robots)
 
     @property
-    def nx(self):
-        return self._n_robots * quadrotor.NX
+    def robot_nx(self):
+        return quadrotor.NX
 
     @property
-    def nu(self):
-        return self._n_robots * quadrotor.NU
+    def robot_nu(self):
+        return quadrotor.NU
 
     @property
     def n_robots(self):
         return self._n_robots
 
-    @functools.partial(jax.jit, static_argnames=("self",))
     def dynamics(self, x, u):
-        x = x.reshape(self._n_robots, quadrotor.NX)
-        u = u.reshape(self._n_robots, quadrotor.NU)
+        x = self.reshape_x_vec(x)
+        u = self.reshape_u_vec(u)
 
         dynamics = jax.vmap(quadrotor.dynamics, out_axes=0)
         return dynamics(x, u, self._mass).ravel()
@@ -40,9 +37,8 @@ class MultiQuadrotor(model_base.ModelBase):
     def ny(self):
         return self._n_robots * (self.DIM_ATT_OBS + self.DIM_BRNG_OBS)
 
-    @functools.partial(jax.jit, static_argnames=("self",))
     def observation(self, x):
-        x = x.reshape(self._n_robots, quadrotor.NX)
+        x = self.reshape_x_vec(x)
         h_att = x[:, 3:7].ravel()
         pos_ref = x[0, 0:3]
 
