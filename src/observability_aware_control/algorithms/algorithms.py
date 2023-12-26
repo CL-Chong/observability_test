@@ -67,6 +67,7 @@ class STLOGOptions:
     id_const: Tuple[int, ...] = dataclasses.field(default=())
     ub: jax.Array = dataclasses.field(default=-jnp.inf)
     lb: jax.Array = dataclasses.field(default=jnp.inf)
+    max_num_iters: int = dataclasses.field(default=100)
 
 
 def lfh_impl(fun, vector_field, x, u):
@@ -100,7 +101,7 @@ def _lie_derivative(fun, vector_field, order, proj=None):
 class STLOG:
     def __init__(
         self,
-        mdl: model_base.ModelBase,
+        mdl: model_base.MRSBase,
         order,
         dt,
         metric=_default_stlog_metric,
@@ -161,6 +162,14 @@ class STLOG:
         return res
 
 
+class OptimizeRecorder:
+    def __init__(self, max_num_iters):
+        self.fval = jnp.full(max_num_iters, jnp.nan)
+
+    def update(self, _, info):
+        self.fval = self.fval.at[info.nit].set(info.fun)
+
+
 class STLOGMinimizeProblem:
     def __init__(self, stlog: STLOG, opts: STLOGOptions):
         self._stlog = stlog
@@ -174,6 +183,8 @@ class STLOGMinimizeProblem:
         self._id_const = jnp.asarray(opts.id_const, dtype=jnp.int32)
         self._id_mut = utils.complementary_indices(self._nu, self._id_const)
         self._n_mut = len(self._id_mut)
+        self._max_num_iters = opts.max_num_iters
+        self._rec = OptimizeRecorder(100)
 
         def objective(us, x, dt):
             xs = forward_dynamics(self.stlog.model.dynamics, x, us, dt)
@@ -183,7 +194,6 @@ class STLOGMinimizeProblem:
         self._fun = utils.separate_array_argument(
             objective, self._u_shape, self._id_mut
         )
-        self.gradient = jax.jit(jax.grad(self.objective))
 
         def constraint(us, x, dt):
             xs = forward_dynamics(self.stlog.model.dynamics, x, us, dt)
@@ -204,15 +214,21 @@ class STLOGMinimizeProblem:
         )
         self.problem.bounds = optimize.Bounds(self._u_lb, self._u_ub)  # type: ignore
 
-        self.problem.jac = self.gradient
+        self.problem.jac = jax.jit(jax.grad(self.objective))
         self.problem.method = "trust-constr"
         self.problem.options = {
-            "xtol": 1e-4,
-            "gtol": 1e-8,
+            "xtol": 1e-1,
+            "gtol": 1e-4,
             "disp": False,
             "verbose": 0,
             "maxiter": 100,
         }
+        self.problem.constraints = optimize.NonlinearConstraint(
+            lambda u: self.constraint(u, *self.problem.args),
+            lb=jnp.full(self._n_mut // self._stlog.model.robot_nu * opts.window, 0.01),
+            ub=jnp.full(self._n_mut // self._stlog.model.robot_nu * opts.window, 10.0),
+            jac=lambda u: self.cons_grad(u, *self.problem.args),
+        )
 
     @property
     def stlog(self):
@@ -226,18 +242,20 @@ class STLOGMinimizeProblem:
     def constraint(self, u_mut, u_const, x, dt):
         return self._cons(u_mut.reshape(-1, self._n_mut), u_const, x, dt)
 
-    def minimize(self, x0, u0, t):
+    def minimize(self, x0, u0, t) -> optimize.OptimizeResult:
         if self.problem is None:
             raise ValueError("Unconfigured problem")
         self._u_const = u0[..., self._id_const]
         self.problem.x0 = u0[..., self._id_mut].ravel()
         self.problem.args = (self._u_const, x0, t)
-        self.problem.constraints = optimize.NonlinearConstraint(
-            lambda u: self.constraint(u, *self.problem.args),
-            lb=jnp.full(u0.shape[0] * 2, 0.01),
-            ub=jnp.full(u0.shape[0] * 2, 10.0),
-            jac=lambda u: self.cons_grad(u, *self.problem.args),
-        )
+
+        fun_hist = []
+
+        def update(_, info):
+            fun_hist.append(info.fun)
+
+        self.problem.callback = update
+
         prob_dict = vars(self.problem)
         soln = optimize.minimize(**prob_dict)
 
@@ -245,6 +263,7 @@ class STLOGMinimizeProblem:
         soln.x = utils.combine_array(
             self._u_shape, self._u_const, x, self._id_const, self._id_mut  # type: ignore
         )
+        soln["fun_hist"] = fun_hist
         return soln
 
 

@@ -15,7 +15,6 @@ from src.observability_aware_control.algorithms import (
     STLOGMinimizeProblem,
     STLOGOptions,
 )
-from src.observability_aware_control.optimize import minimize
 from src.observability_aware_control.utils import utils
 
 # testing list: (X) = bad, (1/2) = not sure, (O) = good
@@ -37,14 +36,14 @@ def test(anim=False):
     dt = 0.2
     dt_stlog = 0.2
     stlog = STLOG(num_mdl, order_psd, dt_stlog, components=(10, 11, 20, 21))
-    n_steps = 1000
+    n_steps = 500
     n_splits = 2
     # adaptive stlog - kicks up if min eig < min_tol, down if min eig > max_tol
     ms = planning.MinimumSnap(
         5, [0, 0, 1, 1], planning.MinimumSnapAlgorithm.CONSTRAINED
     )
 
-    x0 = [np.r_[1.0, 0.0, 10.0], np.r_[0.0, 3.0, 10.0], np.r_[0.0, -3.0, 10.0]]
+    x0 = [np.r_[2.0, 1e-3, 10.0], np.r_[-1e-3, 1.0, 10.0], np.r_[2e-4, -1.0, 10.0]]
     states_traj = []
     inputs_traj = []
     for it in x0:
@@ -88,6 +87,10 @@ def test(anim=False):
         ),
     )
     t = 0
+    status = []
+    nit = []
+    fun_hists = []
+    time = [t]
     for i in tqdm.tqdm(range(1, n_steps)):
         soln = min_problem.minimize(
             x[:, i - 1],
@@ -95,11 +98,20 @@ def test(anim=False):
             dt,
         )
         soln_u = np.concatenate([u_leader[:, i], soln.x[0, num_mdl.robot_nu :]])
+        tqdm.tqdm.write(
+            f"f(x): {soln.fun} Optimality: {soln.optimality} gnorm: {np.linalg.norm(soln.grad)} violation: {soln.constr_violation}"
+        )
+        status.append(soln.status)
+        nit.append(soln.nit)
+        fun_hist = np.full(100, np.inf)
+        fun_hist[0 : len(soln.fun_hist)] = np.asarray(soln.fun_hist)
+        fun_hists.append(np.array(fun_hist))
         u[:, i] = soln_u
         x[:, i] = x[:, i - 1] + dt * min_problem.stlog.model.dynamics(
             x[:, i - 1], soln_u
         )
         t += dt
+        time.append(t)
 
         if anim:
             x_drawable = np.reshape(
@@ -118,7 +130,15 @@ def test(anim=False):
             anim.canvas.draw_idle()
             plt.pause(0.01)
 
-    np.savez("data/optimization_results.npz", states=x, inputs=u, time=t)
+    np.savez(
+        "data/optimization_results.npz",
+        states=x,
+        inputs=u,
+        time=time,
+        status=status,
+        nit=nit,
+        fun_hist=np.asarray(fun_hists),
+    )
 
     def plotting_simple(model, x):
         figs = {}

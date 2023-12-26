@@ -24,6 +24,19 @@ def parse_cli():
     return data
 
 
+def plot_cost(t, fun_hist):
+    fig, ax = plt.subplots()
+    fun_mean = fun_hist.mean(axis=0)
+    fun_stddev = fun_hist.std(axis=0)
+    ax.plot(np.r_[0:100], fun_mean)
+    ax.plot(np.r_[0:100], fun_mean + fun_stddev)
+    # ax.fill_between(
+    # np.r_[0:100], fun_mean + fun_stddev, fun_mean - fun_stddev, alpha=0.2
+    # )
+    for it in fun_hist:
+        ax.plot(it, alpha=0.2)
+
+
 def plot_3d_trajectory(states):
     fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
     n_robots = states.shape[1]
@@ -79,6 +92,10 @@ def main():
 
     states = data["states"].T
     states = states.reshape(-1, 3, 10)[..., 0:N_POS_COMPS]
+
+    t = data["time"]
+    fun_hist = data["fun_hist"]
+    plot_cost(t, fun_hist)
     xlim, ylim = plot_3d_trajectory(states)
     # _ = animate_3d_trajectory(states, xlim, ylim)
     plt.show()
