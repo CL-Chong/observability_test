@@ -20,8 +20,8 @@ NU = 2
 jitmember = functools.partial(jax.jit, static_argnames=("self",))
 
 
-@functools.partial(jax.jit, static_argnames=("dynamics"))
-def forward_dynamics(dynamics, x0, u, dt):
+@functools.partial(jax.jit, static_argnames=("dynamics", "method"))
+def forward_dynamics(dynamics, x0, u, dt, method="RK4"):
     """Run forward simulation of a dynamical system
 
     Details
@@ -39,6 +39,8 @@ def forward_dynamics(dynamics, x0, u, dt):
         A sys.nu-by-len(dt) array of control inputs
     dt : ArrayLike
         An array of time steps
+    method: Literal["RK4"] | Literal["euler"]
+        Specifies the integration method
     Returns
     -------
     Tuple[jnp.array, jnp.array] | jnp.array
@@ -47,7 +49,18 @@ def forward_dynamics(dynamics, x0, u, dt):
 
     def _update(x_op, tup):
         u, dt = tup
-        x_new = x_op + dt * dynamics(x_op, u)
+        if method == "RK4":
+            k = jnp.empty((4, x_op.size))
+            k = k.at[0, :].set(dynamics(x_op, u))
+            k = k.at[1, :].set(dynamics(x_op + dt / 2 * k[0, :], u))
+            k = k.at[2, :].set(dynamics(x_op + dt / 2 * k[1, :], u))
+            k = k.at[3, :].set(dynamics(x_op + dt * k[2, :], u))
+            increment = jnp.array([1, 2, 2, 1]) @ k / 6
+        elif method == "euler":
+            increment = dynamics(x_op, u)
+        else:
+            raise NotImplementedError(f"{method} is not a valid integration method")
+        x_new = x_op + dt * increment
         return x_new, x_new
 
     u = jnp.atleast_2d(u)
