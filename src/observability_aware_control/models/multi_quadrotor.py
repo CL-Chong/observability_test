@@ -41,8 +41,9 @@ class MultiQuadrotor(model_base.MRSBase):
         x = self.reshape_x_vec(x)
         h_att = x[:, 3:7].ravel()
         pos_ref = x[0, 0:3]
+        alt = x[1:, 2]
 
         obs = jax.vmap(quadrotor.observation, in_axes=(0, None))
 
         h_bearings = obs(x[1:, :], pos_ref).ravel()
-        return jnp.concatenate([pos_ref, h_att, h_bearings])
+        return jnp.concatenate([pos_ref, alt, h_att, h_bearings])
