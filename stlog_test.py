@@ -12,8 +12,8 @@ import src.observability_aware_control.models.multi_quadrotor as nummodels
 from src.observability_aware_control import planning
 from src.observability_aware_control.algorithms import (
     STLOG,
-    STLOGMinimizeProblem,
-    STLOGOptions,
+    CooperativeOPCProblem,
+    CooperativeLocalizationOptions,
 )
 from src.observability_aware_control.utils import utils
 
@@ -34,8 +34,7 @@ def test(anim=False):
     num_mdl = nummodels.MultiQuadrotor(3, 1.0)
     win_sz = 20
     dt = 0.2
-    dt_stlog = 0.2
-    stlog = STLOG(num_mdl, order_psd, dt_stlog, components=(10, 11, 20, 21))
+    stlog = STLOG(num_mdl, order_psd)
     n_steps = 500
     n_splits = 2
     # adaptive stlog - kicks up if min eig < min_tol, down if min eig > max_tol
@@ -80,12 +79,26 @@ def test(anim=False):
             for idx in range(num_mdl.n_robots)
         }
 
-    min_problem = STLOGMinimizeProblem(
-        stlog,
-        STLOGOptions(
-            dt=dt_stlog, window=win_sz, id_const=tuple(range(4)), lb=u_lb, ub=u_ub
-        ),
+    obs_comps = (10, 11, 12, 20, 21, 22)
+    opts = CooperativeLocalizationOptions(
+        window=win_sz,
+        id_leader=0,
+        lb=u_lb,
+        ub=u_ub,
+        obs_comps=obs_comps,
+        method="trust-constr",
+        optim_options={
+            "xtol": 1e-1,
+            "gtol": 1e-4,
+            "disp": False,
+            "verbose": 0,
+            "maxiter": 150,
+        },
+        min_v2v_dist=np.sqrt(0.2),
+        max_v2v_dist=np.sqrt(10),
     )
+    assert opts.optim_options is not None
+    min_problem = CooperativeOPCProblem(stlog, opts)
     t = 0
     status = []
     nit = []
@@ -103,7 +116,7 @@ def test(anim=False):
         )
         status.append(soln.status)
         nit.append(soln.nit)
-        fun_hist = np.full(100, np.inf)
+        fun_hist = np.full(opts.optim_options["maxiter"], np.inf)
         fun_hist[0 : len(soln.fun_hist)] = np.asarray(soln.fun_hist)
         fun_hists.append(np.array(fun_hist))
         u[:, i] = soln_u

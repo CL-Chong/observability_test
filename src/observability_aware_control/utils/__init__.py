@@ -1,2 +1,2 @@
-from . import optim_plotter
+from . import optim_utils
 from .utils import *

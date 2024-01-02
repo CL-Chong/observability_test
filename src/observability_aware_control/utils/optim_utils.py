@@ -2,6 +2,25 @@ import pathlib
 import time
 
 import matplotlib.pyplot as plt
+import numpy as np
+
+
+class OptimizationRecorder:
+    def __init__(self):
+        self._fun = []
+        self._nit = []
+
+    def update(self, intermediate_result):
+        self._fun.append(intermediate_result.fun)
+        self._nit.append(intermediate_result.nit)
+
+    @property
+    def fun(self):
+        return np.asarray(self._fun)
+
+    @property
+    def nit(self):
+        return np.asarray(self._nit)
 
 
 class OptimPlotter:

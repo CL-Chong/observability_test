@@ -1,9 +1,10 @@
 import dataclasses
 import functools
 import inspect
-from typing import Tuple
+from typing import Any, Dict, Optional, Tuple
 
 import jax
+import numpy as np
 import jax.numpy as jnp
 import jax.numpy.linalg as la
 from scipy import optimize, special
@@ -122,68 +123,23 @@ class STLOG:
         return (coeff * inner).sum(axis=(0, 1))
 
 
-@dataclasses.dataclass
-class STLOGOptions:
-    dt: float
-    window: int = dataclasses.field(default=1)
-    obs_comps: Tuple[int, ...] = dataclasses.field(default=())
-    id_const: Tuple[int, ...] = dataclasses.field(default=())
-    ub: jax.Array = dataclasses.field(default_factory=lambda: -jnp.array(jnp.inf))
-    lb: jax.Array = dataclasses.field(default_factory=lambda: jnp.array(jnp.inf))
-    max_num_iters: int = dataclasses.field(default=100)
-
-
-class STLOGMinimizeProblem:
-    def __init__(self, stlog: STLOG, opts: STLOGOptions):
+class OPCProblem:
+    def __init__(self, stlog: STLOG, obs_comps):
         self._stlog = stlog
         self._nu = self.stlog.model.nu
-        self._dt_stlog = opts.dt
-        if opts.obs_comps:
-            obs_comps = jnp.asarray(opts.obs_comps, dtype=jnp.int32)
+        if obs_comps:
+            obs_comps = jnp.asarray(obs_comps, dtype=jnp.int32)
             self._i_stlog = (...,) + jnp.ix_(obs_comps, obs_comps)
         else:
             self._i_stlog = ...
 
-        self._id_const = jnp.asarray(opts.id_const, dtype=jnp.int32)
-        self._id_mut = utils.complementary_indices(self._nu, self._id_const)
-        self._n_mut = len(self._id_mut)
-        self._max_num_iters = opts.max_num_iters
-
-        self._u_shape = (opts.window, self._nu)
-
-        self.cons_grad = jax.jit(jax.jacfwd(self.constraint))
-        self._u_lb = jnp.broadcast_to(opts.lb, self._u_shape)[..., self._id_mut].ravel()
-        self._u_ub = jnp.broadcast_to(opts.ub, self._u_shape)[..., self._id_mut].ravel()
-
-        fcn = utils.separate_array_argument(self.objective, self._u_shape, self._id_mut)
-        con = utils.separate_array_argument(
-            self.constraint, self._u_shape, self._id_mut
-        )
-        self.problem = minimize_problem.MinimizeProblem(
-            jax.jit(lambda u, *args: fcn(u.reshape(-1, self._n_mut), *args)),
-            jnp.zeros(self._u_shape),
-        )
-        self.problem.bounds = optimize.Bounds(self._u_lb, self._u_ub)  # type: ignore
-
-        self.problem.jac = jax.jit(jax.grad(self.problem.fun))
-        self.problem.method = "trust-constr"
-        self.problem.options = {
-            "xtol": 1e-1,
-            "gtol": 1e-4,
-            "disp": False,
-            "verbose": 0,
-            "maxiter": 150,
-        }
-        self.problem.constraints = optimize.NonlinearConstraint(
-            lambda u: con(u.reshape(-1, self._n_mut), *self.problem.args),
-            lb=jnp.full(self._n_mut // self._stlog.model.robot_nu * opts.window, 0.2),
-            ub=jnp.full(self._n_mut // self._stlog.model.robot_nu * opts.window, 10.0),
-        )
-        self.problem.constraints.jac = jax.jacfwd(self.problem.constraints.fun)
-
     @property
     def stlog(self):
         return self._stlog
+
+    @property
+    def model(self):
+        return self._stlog.model
 
     def objective(self, us, x, dt):
         dt = jnp.broadcast_to(dt, us.shape[0])
@@ -191,7 +147,64 @@ class STLOGMinimizeProblem:
         stlog = jax.vmap(self.stlog)(xs, us, dt)[self._i_stlog]
         return -la.norm(stlog, -2, axis=(1, 2)).sum()
 
-    def constraint(self, us, x, dt):
+
+@dataclasses.dataclass
+class CooperativeLocalizationOptions:
+    window: int = dataclasses.field(default=1)
+    obs_comps: Tuple[int, ...] = dataclasses.field(default=())
+    id_leader: int = dataclasses.field(default=0)
+    ub: jax.Array = dataclasses.field(default_factory=lambda: -jnp.array(jnp.inf))
+    lb: jax.Array = dataclasses.field(default_factory=lambda: jnp.array(jnp.inf))
+    min_v2v_dist: float = dataclasses.field(default=0.0)
+    max_v2v_dist: float = dataclasses.field(default=jnp.inf)
+    method: Optional[minimize_problem.Method] = dataclasses.field(default=None)
+    optim_options: Optional[Dict[str, Any]] = dataclasses.field(default=None)
+
+
+class CooperativeOPCProblem(OPCProblem):
+    def __init__(self, stlog: STLOG, opts: CooperativeLocalizationOptions):
+        super().__init__(stlog, opts.obs_comps)
+        self._nu = self.model.nu
+        self._robot_nu = self.model.robot_nu
+        self._n_robots = self.model.n_robots
+        self._id_const = jnp.arange(opts.id_leader, opts.id_leader + self._robot_nu)
+
+        self._id_mut = utils.complementary_indices(self._nu, self._id_const)
+        self._n_mut = len(self._id_mut)
+
+        self._u_shape = (opts.window, self._nu)
+
+        self._u_lb = jnp.broadcast_to(opts.lb, self._u_shape)[..., self._id_mut].ravel()
+        self._u_ub = jnp.broadcast_to(opts.ub, self._u_shape)[..., self._id_mut].ravel()
+
+        self.problem = minimize_problem.MinimizeProblem(
+            jax.jit(self.objective), jnp.zeros(self._u_shape)
+        )
+        self.problem.jac = jax.jit(jax.grad(self.objective))
+
+        self.problem.method, self.problem.options = opts.method, opts.optim_options
+        self.problem.bounds = optimize.Bounds(self._u_lb, self._u_ub)  # type: ignore
+
+        self.problem.constraints = optimize.NonlinearConstraint(
+            lambda u: self.constraint(u, *self.problem.args),
+            lb=jnp.full((self._n_robots - 1) * opts.window, opts.min_v2v_dist**2),
+            ub=jnp.full((self._n_robots - 1) * opts.window, opts.max_v2v_dist**2),
+        )
+        self.problem.constraints.jac = jax.jacfwd(self.problem.constraints.fun)
+
+    def combine_input(self, u, u_const):
+        u = u.reshape(-1, self._n_mut)
+        return utils.combine_array(
+            self._u_shape, u, u_const, self._id_mut, self._id_const
+        )
+
+    @jitmember
+    def objective(self, u, u_const, x, dt):
+        return super().objective(self.combine_input(u, u_const), x, dt)
+
+    @jitmember
+    def constraint(self, u, u_const, x, dt):
+        us = self.combine_input(u, u_const)
         dt = jnp.broadcast_to(dt, us.shape[0])
         xs = forward_dynamics(self.stlog.model.dynamics, x, us, dt)
         pos = xs.reshape(xs.shape[0], -1, 10)[:, :, 0:3]
@@ -200,27 +213,18 @@ class STLOGMinimizeProblem:
         return dp_nrm
 
     def minimize(self, x0, u0, t) -> optimize.OptimizeResult:
-        if self.problem is None:
-            raise ValueError("Unconfigured problem")
-        self._u_const = u0[..., self._id_const]
+        u_const = u0[..., self._id_const]
         self.problem.x0 = u0[..., self._id_mut].ravel()
-        self.problem.args = (self._u_const, x0, t)
+        self.problem.args = (u_const, x0, t)
 
-        fun_hist = []
-
-        def update(intermediate_result):
-            fun_hist.append(intermediate_result.fun)
-
-        self.problem.callback = update
+        rec = utils.optim_utils.OptimizationRecorder()
+        self.problem.callback = rec.update
 
         prob_dict = vars(self.problem)
         soln = optimize.minimize(**prob_dict)
 
-        x = soln.x.reshape(-1, self._n_mut)  # type: ignore
-        soln.x = utils.combine_array(
-            self._u_shape, self._u_const, x, self._id_const, self._id_mut  # type: ignore
-        )
-        soln["fun_hist"] = fun_hist
+        soln["x"] = self.combine_input(soln.x, u_const)
+        soln["fun_hist"] = rec.fun
         return soln
 
 
