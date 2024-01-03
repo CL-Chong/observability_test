@@ -41,21 +41,19 @@ def main():
         5, [0, 0, 1, 1], planning.MinimumSnapAlgorithm.CONSTRAINED
     )
 
-    x0 = [np.r_[2.0, 1e-3, 10.0], np.r_[-1e-3, 1.0, 10.0], np.r_[2e-4, -1.0, 10.0]]
-    states_traj = []
-    inputs_traj = []
-    for it in x0:
-        p_ref = np.linspace(
-            it, it + np.array([n_steps * 2.5 * dt, 0, 0]), n_splits, axis=1
-        )
-        t_ref = np.linspace(0, n_steps * dt, n_splits)
-        pp = ms.generate(p_ref, t_ref)
-        traj = pp.to_real_trajectory(1.0, np.r_[0:n_steps] * dt)
-        states_traj.append(traj.states)
-        inputs_traj.append(traj.inputs)
-
-    states_traj = np.stack(states_traj)
-    inputs_traj = np.stack(inputs_traj)
+    speed = 2.5
+    dist = np.r_[n_steps * speed * dt, 0, 0]
+    p_refs = [
+        np.linspace(p0, p0 + dist, n_splits, axis=1)
+        for p0 in [
+            np.r_[2.0, 1e-3, 10.0],
+            np.r_[-1e-3, 1.0, 10.0],
+            np.r_[2e-4, -1.0, 10.0],
+        ]
+    ]
+    t_ref = (np.linspace(0, n_steps * dt, n_splits),) * 3
+    t_sample = np.r_[0:n_steps] * dt
+    states_traj, inputs_traj = ms.generate_trajectories(t_ref, p_refs, t_sample)
 
     u_lb = jnp.tile(jnp.r_[0.0, -0.4, -0.4, -2.0], mdl.n_robots)
     u_ub = jnp.tile(jnp.r_[11.0, 0.4, 0.4, 2.0], mdl.n_robots)
