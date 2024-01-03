@@ -1,7 +1,7 @@
 import dataclasses
-from typing import Any, Callable, Dict, Literal, Optional, Union
+from typing import Any, Callable, Dict, Literal, Optional, Tuple, Union
 
-from numpy.typing import ArrayLike
+from numpy.typing import NDArray
 from scipy import optimize
 
 Method = Union[
@@ -33,7 +33,11 @@ class MinimizeProblem:
     """Dataclass container for parameters to scipy.optimize.minimize"""
 
     fun: Callable
-    x0: ArrayLike
+
+    x0: NDArray
+    id_const: Tuple[int, ...] = dataclasses.field(default=())
+
+    args: Tuple[Any, ...] = dataclasses.field(default=())
     bounds: Optional[optimize.Bounds] = dataclasses.field(default=None)
 
     jac: Union[Callable, FiniteDifferenceMethods, bool, None] = dataclasses.field(

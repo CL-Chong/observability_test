@@ -8,9 +8,8 @@
       "name": "Optimization",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceFolder}/optimization.py",
+      "program": "${workspaceFolder}/stlog_test.py",
       "console": "integratedTerminal",
-      "justMyCode": true,
       "env": {
         "PYTHONPATH": "${workspaceFolder}/src"
       }

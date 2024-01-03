@@ -1,2 +1,2 @@
-from . import minimize_problem, optim_plotter
+from . import optim_plotter
 from .utils import *

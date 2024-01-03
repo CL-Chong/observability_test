@@ -3,36 +3,42 @@ import functools
 import jax
 import jax.numpy as jnp
 
-from .. import model_base
+from . import model_base
 
-NX = 3
-NU = 2
-NY = 1
+NX = 4
+NU = 3
+NY = 2
 
 
 @jax.jit
 def dynamics(x, u):
-    psi = x[2]
+    psi = x[3]
     v = u[0]
-    w = u[1]
+    dz = u[1]
+    w = u[2]
 
     c = jnp.cos(psi)
     s = jnp.sin(psi)
 
-    return jnp.array([c * v, s * v, w])
+    return jnp.array([c * v, s * v, dz, w])
 
 
 @jax.jit
 def observation(x, pos_ref):
-    psi = x[2]
+    psi = x[3]
     c = jnp.cos(psi)
     s = jnp.sin(psi)
 
-    p_diff = pos_ref - x[0:2]
+    p_diff = pos_ref - x[0:3]
 
     hx = c * p_diff[0] + s * p_diff[1]
     hy = -s * p_diff[0] + c * p_diff[1]
-    return jnp.arctan2(hy, hx)
+    return jnp.array(
+        [
+            jnp.arctan2(hy, hx),
+            jnp.arctan2(p_diff[2], jnp.hypot(hx, hy)),
+        ]
+    )
 
 
 @property
