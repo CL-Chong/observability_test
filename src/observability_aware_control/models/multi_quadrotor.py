@@ -7,8 +7,10 @@ from . import model_base, quadrotor
 
 
 class MultiQuadrotor(model_base.MRSBase):
+    DIM_LEADER_POS_OBS = 3
     DIM_ATT_OBS = 4
     DIM_BRNG_OBS = 2
+    DIM_ALT_OBS = 1
 
     def __init__(self, n_robots, mass):
         self._n_robots = n_robots
@@ -35,7 +37,12 @@ class MultiQuadrotor(model_base.MRSBase):
 
     @property
     def ny(self):
-        return self._n_robots * (self.DIM_ATT_OBS + self.DIM_BRNG_OBS)
+        return (
+            self.DIM_LEADER_POS_OBS
+            + (self._n_robots - 1) * self.DIM_ALT_OBS
+            + self._n_robots * self.DIM_ATT_OBS
+            + (self._n_robots - 1) * self.DIM_BRNG_OBS
+        )
 
     def observation(self, x):
         x = self.reshape_x_vec(x)

@@ -90,7 +90,7 @@ def _lie_derivative(fun, vector_field, order):
 class STLOG:
     """This class manages computation of the Short Time Local observability Gramian"""
 
-    def __init__(self, mdl, order):
+    def __init__(self, mdl, order, cov=None):
         self._model = mdl
 
         # Setup the lie derivatives
@@ -102,6 +102,11 @@ class STLOG:
                 order,
             )
         ]
+        if cov is not None:
+            if cov.ndim == 2:
+                self._cov = jnp.linalg.inv(cov)[None, None, ...]
+        else:
+            self._cov = jnp.eye(self.model.ny)[None, None, ...]
 
         # Cache some order-dependent constant numeric data for stlog evaluation
         order_seq = jnp.arange(order + 1)
@@ -117,7 +122,7 @@ class STLOG:
     def __call__(self, x, u, dt):
         dalfh = jnp.stack(jax.tree_map(lambda it: it(x, u), self._dalfh_f))
         coeff = (dt**self._k / self._den)[..., None, None]
-        inner = dalfh[self._a].swapaxes(3, 2) @ dalfh[self._b]
+        inner = dalfh[self._a].swapaxes(3, 2) @ self._cov @ dalfh[self._b]
         return (coeff * inner).sum(axis=(0, 1))
 
 
@@ -139,13 +144,19 @@ class OPCCost:
     def model(self):
         return self._stlog.model
 
-    def __call__(self, us, x, dt, return_stlog=False):
+    def __call__(self, us, x, dt, return_stlog=False, return_traj=False):
         dt = jnp.broadcast_to(dt, us.shape[0])
         xs = forward_dynamics(self.stlog.model.dynamics, x, us, dt)
         stlog = jax.vmap(self.stlog)(xs, us, dt)[self._i_stlog]
-        if return_stlog:
-            return -la.norm(stlog, -2, axis=(1, 2)).sum(), stlog
-        return -la.norm(stlog, -2, axis=(1, 2)).sum()
+        res = -la.norm(stlog, -2, axis=(1, 2)).sum()
+        if return_stlog or return_traj:
+            res = (res,)
+            if return_stlog:
+                res += (stlog,)
+            if return_traj:
+                res += (xs,)
+            return res
+        return res
 
 
 @dataclasses.dataclass
@@ -206,13 +217,13 @@ class CooperativeOPCProblem:
             self._u_shape, u, u_const, self._id_mut, self._id_const
         )
 
-    @functools.partial(jax.jit, static_argnames=("self", "return_stlog"))
-    def opc(self, u, x, dt, return_stlog=False):
-        return self._opc(u, x, dt, return_stlog)
+    @functools.partial(jax.jit, static_argnames=("self", "return_stlog", "return_traj"))
+    def opc(self, u, x, dt, return_stlog=False, return_traj=False):
+        return self._opc(u, x, dt, return_stlog, return_traj)
 
-    @functools.partial(jax.jit, static_argnames=("self", "return_stlog"))
-    def objective(self, u, u_const, x, dt, return_stlog=False):
-        return self._opc(self.combine_input(u, u_const), x, dt, return_stlog)
+    @functools.partial(jax.jit, static_argnames=("self"))
+    def objective(self, u, u_const, x, dt):
+        return self._opc(self.combine_input(u, u_const), x, dt)
 
     @jitmember
     def constraint(self, u, u_const, x, dt):

@@ -16,8 +16,8 @@ class SimpleEKF:
         resid_fcn=operator.sub,
         corr_fcn=operator.add,
     ):
-        self._fcn = fcn
-        self._hfcn = hfcn
+        self.fcn = fcn
+        self.hfcn = hfcn
         self._fjac = jax.jit(jax.jacfwd(fcn, argnums=(0, 1)))
         self._hjac = jax.jit(jax.jacfwd(hfcn))
         self._in_cov = in_cov
@@ -39,7 +39,7 @@ class SimpleEKF:
         kf_cov = jla.multi_dot((fjac, kf_cov, fjac.T)) + jla.multi_dot(
             (gjac, self.in_cov, gjac.T)
         )
-        x_op = self._fcn(x_op, u, dt)
+        x_op = self.fcn(x_op, u, dt)
         return x_op, kf_cov
 
     @functools.partial(jax.jit, static_argnames=["self"], donate_argnums=[1, 2])
@@ -55,7 +55,7 @@ class SimpleEKF:
         hjac = jax.vmap(self._hjac)(x_wa, *args)
         hjac = hjac.reshape(-1, hjac.shape[-1])
 
-        hx = jax.vmap(self._hfcn)(x_wa, *args)
+        hx = jax.vmap(self.hfcn)(x_wa, *args)
         obs_cov = jnp.kron(jnp.eye(n_meas), self.obs_cov)
 
         resid_cov = hjac @ kf_cov @ hjac.T + obs_cov
