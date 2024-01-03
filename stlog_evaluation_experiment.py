@@ -1,8 +1,8 @@
 import jax
 import jax.numpy as jnp
 import jax.numpy.linalg as la
-from src.observability_aware_control.models import multi_quadrotor
-from src.observability_aware_control.algorithms import (
+from observability_aware_control.models import multi_quadrotor
+from observability_aware_control.algorithms import (
     STLOG,
     OPCCost,
     CooperativeOPCProblem,

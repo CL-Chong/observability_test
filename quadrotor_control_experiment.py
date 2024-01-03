@@ -6,14 +6,14 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
 
-from src.observability_aware_control import planning
-from src.observability_aware_control.algorithms import (
+import observability_aware_control.algorithms.misc.trajectory_generation as planning
+from observability_aware_control.algorithms import (
     STLOG,
     CooperativeLocalizationOptions,
     CooperativeOPCProblem,
 )
-from src.observability_aware_control.models import multi_quadrotor
-from src.observability_aware_control import utils
+from observability_aware_control.models import multi_quadrotor
+from observability_aware_control import utils
 
 
 # testing list: (X) = bad, (1/2) = not sure, (O) = good
