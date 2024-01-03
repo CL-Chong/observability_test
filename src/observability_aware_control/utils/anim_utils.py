@@ -1,6 +1,6 @@
 import matplotlib as mpl
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib import animation
 
 
@@ -8,8 +8,11 @@ class Animated3DTrajectory:
     def __init__(self, n_robots) -> None:
         # Disable pesky focus stealing
         # https://stackoverflow.com/questions/45729092/make-interactive-matplotlib-window-not-pop-to-front-on-each-update-windows-7
+        self._enable_plot = True
         try:
             mpl.use("Qt5agg")
+        except ImportError:
+            self._enable_plot = False
         except ValueError:
             mpl.use("Qt4agg")
         self.t = np.array([])
@@ -17,9 +20,12 @@ class Animated3DTrajectory:
         self.x = [np.array([])] * n_robots
         self.y = [np.array([])] * n_robots
         self.z = [np.array([])] * n_robots
-        self._fig, self._ax = plt.subplots(1, 2)
-        self._fig.tight_layout()
-        self._anim = animation.FuncAnimation(self._fig, self.animate, save_count=100)
+        if self._enable_plot:
+            self._fig, self._ax = plt.subplots(1, 2)
+            self._fig.tight_layout()
+            self._anim = animation.FuncAnimation(
+                self._fig, self.animate, save_count=100
+            )
 
     def set_labels(self):
         self._ax[0].set_xlabel("X Position (m)")
@@ -28,6 +34,8 @@ class Animated3DTrajectory:
         self._ax[1].set_ylabel("Altitude (m)")
 
     def animate(self, _):
+        if not self._enable_plot:
+            return ()
         for it in self._ax:
             it.clear()
 
