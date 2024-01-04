@@ -12,28 +12,12 @@ max_inter_vehicle_distance = 100
 min_inter_vehicle_distance = 2
 
 [initial_path]
+initial_positions = [[1, 0, 0], [-0.5, 0.8660254, 0.0], [-0.5, -0.8660254, 0.0]]
+leader_trajectory = "./data/trajectory_data.npz"
 degree = 5
 derivative_weights = [0, 0, 1, 1]
-time_reference = [0, 100]
-position_reference = [
-    [
+time_reference = [0, 12.5, 25, 37.5, 50, 62.5, 75, 87.5, 100]
 
-        [2.0, 252.0],   # Force horizontal listing
-        [0.001, 0.001],
-        [10.0, 10.0],
-
-    ],
-    [
-        [-0.001, 249.999], # Force horizontal listing
-        [1.0, 1.0],
-        [10.0, 10.0],
-    ],
-    [
-        [0.0002, 250.0002], # Force horizontal listing
-        [-1.0, -1.0],
-        [10.0, 10.0],
-    ],
-]
 n_timesteps = 500
 
 [optim]

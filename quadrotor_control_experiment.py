@@ -13,6 +13,7 @@ from observability_aware_control.algorithms import (
     STLOG,
     CooperativeLocalizationOptions,
     CooperativeOPCProblem,
+    forward_dynamics,
 )
 from observability_aware_control.models import multi_quadrotor
 from observability_aware_control import utils
@@ -40,31 +41,24 @@ def main():
     )
 
     # -----------------------Generate initial trajectory------------------------
-    ms = planning.MinimumSnap(
-        cfg["initial_path"]["degree"],
-        cfg["initial_path"]["derivative_weights"],
-        planning.MinimumSnapAlgorithm.CONSTRAINED,
-    )
 
-    p_refs = np.array(cfg["initial_path"]["position_reference"])
-    t_ref = np.array(cfg["initial_path"]["time_reference"])
-    n_steps = cfg["initial_path"]["n_timesteps"]
-    dt = np.diff(t_ref) / n_steps
-    t_sample = np.arange(0, n_steps) * dt
-    states_traj, inputs_traj = ms.generate_trajectories(
-        jnp.tile(t_ref, [cfg["model"]["n_robots"], 1]),
-        p_refs,
-        jnp.tile(t_sample, [cfg["model"]["n_robots"], 1]),
-    )
+    trajectory_data = np.load(cfg["initial_path"]["leader_trajectory"])
+    u_leader = trajectory_data["inputs"]
+    t_sample = trajectory_data["time"]
+    dt = np.diff(t_sample)[0]
 
     # -----------------Setup initial conditions and data saving-----------------
     sim_steps = cfg["sim"]["steps"]
     time = t_sample[0:sim_steps]
     x = np.zeros((sim_steps, mdl.nx))
     u = np.zeros((sim_steps, mdl.nu))
-    x[0, :] = states_traj[:, :, 0].ravel()
-    u[0, :] = inputs_traj[:, :, 0].ravel()
-    u_leader = inputs_traj[0, :, :]
+    x[0, :] = np.concatenate(
+        [
+            np.r_[it, np.zeros(3), 1.0, np.zeros(3)]
+            for it in cfg["initial_path"]["initial_positions"]
+        ]
+    )
+    u[0, :] = np.tile(np.array([9.81, 0.0, 0.0, 0.0]), 3)
     status = []
     nit = []
     fun_hists = []
@@ -98,7 +92,7 @@ def main():
                 jnp.broadcast_to(u[i - 1, :], (window, len(u[i - 1, :]))),
                 dt,
             )
-            soln_u = np.concatenate([u_leader[:, i], soln.x[0, mdl.robot_nu :]])
+            soln_u = np.concatenate([u_leader[:, i - 1], soln.x[0, mdl.robot_nu :]])
 
             status.append(soln.status)
             nit.append(soln.nit)
@@ -106,9 +100,7 @@ def main():
             fun_hist[0 : len(soln.fun_hist)] = np.asarray(soln.fun_hist)
             fun_hists.append(np.array(fun_hist))
             u[i, :] = soln_u
-            x[i, :] = x[i - 1, :] + dt * min_problem.stlog.model.dynamics(
-                x[i - 1, :], soln_u
-            )
+            x[i, :] = forward_dynamics(mdl.dynamics, x[i - 1, :], soln_u, dt, "RK4")
 
             plt_data = np.reshape(x[0:i, :], (i, mdl.n_robots, mdl.robot_nx))
             anim.annotation = (
