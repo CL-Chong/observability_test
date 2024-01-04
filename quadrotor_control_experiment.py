@@ -2,9 +2,11 @@ import math
 
 import jax
 import jax.numpy as jnp
+import jax.experimental.compilation_cache.compilation_cache as cc
 import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
+import tomllib
 
 import observability_aware_control.algorithms.misc.trajectory_generation as planning
 from observability_aware_control.algorithms import (
@@ -24,85 +26,83 @@ from observability_aware_control import utils
 # adaptive dt_stlog (O - continue to refine)
 # psd mod (O - less transients than base, but less turning too)
 
+cc.initialize_cache("./.cache")
+
 jax.config.update("jax_enable_x64", True)
 
 
 def main():
-    order = 1
+    with open("./config/quadrotor_control_experiment.toml", "rb") as fp:
+        cfg = tomllib.load(fp)
 
-    mdl = multi_quadrotor.MultiQuadrotor(3, 1.0)
-    win_sz = 20
-    dt = 0.2
-    stlog = STLOG(mdl, order)
-    n_steps = 500
-    n_splits = 2
-    # adaptive stlog - kicks up if min eig < min_tol, down if min eig > max_tol
-    ms = planning.MinimumSnap(
-        5, [0, 0, 1, 1], planning.MinimumSnapAlgorithm.CONSTRAINED
+    mdl = multi_quadrotor.MultiQuadrotor(
+        cfg["model"]["n_robots"], cfg["model"]["robot_mass"]
     )
 
-    speed = 2.5
-    dist = np.r_[n_steps * speed * dt, 0, 0]
-    p_refs = [
-        np.linspace(p0, p0 + dist, n_splits, axis=1)
-        for p0 in [
-            np.r_[2.0, 1e-3, 10.0],
-            np.r_[-1e-3, 1.0, 10.0],
-            np.r_[2e-4, -1.0, 10.0],
-        ]
-    ]
-    t_ref = (np.linspace(0, n_steps * dt, n_splits),) * 3
-    t_sample = np.r_[0:n_steps] * dt
-    states_traj, inputs_traj = ms.generate_trajectories(t_ref, p_refs, t_sample)
+    # -----------------------Generate initial trajectory------------------------
+    ms = planning.MinimumSnap(
+        cfg["initial_path"]["degree"],
+        cfg["initial_path"]["derivative_weights"],
+        planning.MinimumSnapAlgorithm.CONSTRAINED,
+    )
 
-    u_lb = jnp.tile(jnp.r_[0.0, -0.4, -0.4, -2.0], mdl.n_robots)
-    u_ub = jnp.tile(jnp.r_[11.0, 0.4, 0.4, 2.0], mdl.n_robots)
-    x = np.zeros((n_steps, mdl.nx))
-    u = np.zeros((n_steps, mdl.nu))
+    p_refs = np.array(cfg["initial_path"]["position_reference"])
+    t_ref = np.array(cfg["initial_path"]["time_reference"])
+    n_steps = cfg["initial_path"]["n_timesteps"]
+    dt = np.diff(t_ref) / n_steps
+    t_sample = np.arange(0, n_steps) * dt
+    states_traj, inputs_traj = ms.generate_trajectories(
+        jnp.tile(t_ref, [cfg["model"]["n_robots"], 1]),
+        p_refs,
+        jnp.tile(t_sample, [cfg["model"]["n_robots"], 1]),
+    )
+
+    # -----------------Setup initial conditions and data saving-----------------
+    sim_steps = cfg["sim"]["steps"]
+    time = t_sample[0:sim_steps]
+    x = np.zeros((sim_steps, mdl.nx))
+    u = np.zeros((sim_steps, mdl.nu))
     x[0, :] = states_traj[:, :, 0].ravel()
     u[0, :] = inputs_traj[:, :, 0].ravel()
-
     u_leader = inputs_traj[0, :, :]
-
-    obs_comps = (10, 11, 12, 20, 21, 22)
-    opts = CooperativeLocalizationOptions(
-        window=win_sz,
-        id_leader=0,
-        lb=u_lb,
-        ub=u_ub,
-        obs_comps=obs_comps,
-        method="trust-constr",
-        optim_options={
-            "xtol": 1e-1,
-            "gtol": 1e-4,
-            "disp": False,
-            "verbose": 0,
-            "maxiter": 150,
-        },
-        min_v2v_dist=math.sqrt(0.2),
-        max_v2v_dist=math.sqrt(10),
-    )
-    assert opts.optim_options is not None
-    min_problem = CooperativeOPCProblem(stlog, opts)
     status = []
     nit = []
     fun_hists = []
-    time = np.arange(0, n_steps) * dt
 
+    # ---------------------------Setup the Optimizer----------------------------
+    stlog = STLOG(mdl, cfg["stlog"]["order"])
+
+    window = cfg["opc"]["window_size"]
+    u_lb = jnp.tile(jnp.array(cfg["optim"]["lb"]), (window, mdl.n_robots))
+    u_ub = jnp.tile(jnp.array(cfg["optim"]["ub"]), (window, mdl.n_robots))
+    opts = CooperativeLocalizationOptions(
+        window=window,
+        id_leader=0,
+        lb=u_lb,
+        ub=u_ub,
+        obs_comps=cfg["opc"]["observed_components"],
+        method=cfg["optim"]["method"],
+        optim_options=cfg["optim"]["options"],
+        min_v2v_dist=cfg["opc"]["min_inter_vehicle_distance"],
+        max_v2v_dist=cfg["opc"]["max_inter_vehicle_distance"],
+    )
+
+    min_problem = CooperativeOPCProblem(stlog, opts)
     anim = utils.anim_utils.Animated3DTrajectory(mdl.n_robots)
 
+    # ----------------------------Run the Simulation----------------------------
     with plt.ion():
-        for i in tqdm.tqdm(range(1, n_steps)):
+        for i in tqdm.tqdm(range(1, sim_steps)):
             soln = min_problem.minimize(
                 x[i - 1, :],
-                jnp.broadcast_to(u[i - 1, :], (win_sz, len(u[i - 1, :]))),
+                jnp.broadcast_to(u[i - 1, :], (window, len(u[i - 1, :]))),
                 dt,
             )
             soln_u = np.concatenate([u_leader[:, i], soln.x[0, mdl.robot_nu :]])
 
             status.append(soln.status)
             nit.append(soln.nit)
-            fun_hist = np.full(opts.optim_options["maxiter"], np.inf)
+            fun_hist = np.full(cfg["optim"]["options"]["maxiter"], np.inf)
             fun_hist[0 : len(soln.fun_hist)] = np.asarray(soln.fun_hist)
             fun_hists.append(np.array(fun_hist))
             u[i, :] = soln_u
@@ -145,8 +145,6 @@ def main():
         )
 
     plt.show()
-
-    return
 
 
 if __name__ == "__main__":

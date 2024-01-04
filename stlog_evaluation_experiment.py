@@ -1,8 +1,9 @@
-from math import sqrt
+import tomllib
 import tqdm
 import matplotlib.pyplot as plt
 import jax
 import jax.numpy as jnp
+import jax.experimental.compilation_cache.compilation_cache as cc
 from observability_aware_control.models import multi_quadrotor
 from observability_aware_control.algorithms import (
     STLOG,
@@ -23,51 +24,53 @@ def run_state_est(kf, xs, us, dt, cov_op_init):
     return jnp.stack(cov_num)
 
 
-mdl = multi_quadrotor.MultiQuadrotor(3, 1.0)
-order = 1
-window = 20
-dt = 0.1
-stlog = STLOG(mdl, order)
-u_lb = jnp.tile(jnp.r_[0.0, -0.4, -0.4, -2.0], (window, mdl.n_robots))
-u_ub = jnp.tile(jnp.r_[11.0, 0.4, 0.4, 2.0], (window, mdl.n_robots))
-obs_comps = (10, 11, 12, 20, 21, 22)
+cc.initialize_cache("./.cache")
+
+with open("./config/quadrotor_control_experiment.toml", "rb") as fp:
+    cfg = tomllib.load(fp)
+
+mdl = multi_quadrotor.MultiQuadrotor(
+    cfg["model"]["n_robots"], cfg["model"]["robot_mass"]
+)
+
+ms = planning.MinimumSnap(
+    cfg["initial_path"]["degree"],
+    cfg["initial_path"]["derivative_weights"],
+    planning.MinimumSnapAlgorithm.CONSTRAINED,
+)
+
+p_refs = jnp.array(cfg["initial_path"]["position_reference"])
+t_ref = jnp.array(cfg["initial_path"]["time_reference"])
+n_steps = cfg["initial_path"]["n_timesteps"]
+dt = jnp.diff(t_ref) / n_steps
+t_sample = jnp.arange(0, n_steps) * dt
+states_traj, inputs_traj = ms.generate_trajectories(
+    jnp.tile(t_ref, [cfg["model"]["n_robots"], 1]),
+    p_refs,
+    jnp.tile(t_sample, [cfg["model"]["n_robots"], 1]),
+)
+
+
+# ---------------------------Setup the Optimizer----------------------------
+stlog = STLOG(mdl, cfg["stlog"]["order"])
+
+window = cfg["opc"]["window_size"]
+u_lb = jnp.tile(jnp.array(cfg["optim"]["lb"]), (window, mdl.n_robots))
+u_ub = jnp.tile(jnp.array(cfg["optim"]["ub"]), (window, mdl.n_robots))
 opts = CooperativeLocalizationOptions(
     window=window,
     id_leader=0,
     lb=u_lb,
     ub=u_ub,
-    obs_comps=obs_comps,
-    method="trust-constr",
-    optim_options={
-        "xtol": 1e-5,
-        "gtol": 1e-9,
-        "verbose": 1,
-        "maxiter": 500,
-    },
-    min_v2v_dist=sqrt(0.2),
-    max_v2v_dist=sqrt(10),
+    obs_comps=cfg["opc"]["observed_components"],
+    method=cfg["optim"]["method"],
+    optim_options=cfg["optim"]["options"],
+    min_v2v_dist=cfg["opc"]["min_inter_vehicle_distance"],
+    max_v2v_dist=cfg["opc"]["max_inter_vehicle_distance"],
 )
-
 min_problem = CooperativeOPCProblem(stlog, opts)
-obs_comps = jnp.array(obs_comps)
 
-speed = 2.5
-n_steps = 500
-n_splits = 2
-dist = jnp.r_[n_steps * speed * dt, 0, 0]
-p_refs = [
-    jnp.linspace(p0, p0 + dist, n_splits, axis=1)
-    for p0 in [
-        jnp.r_[2.0, 1e-3, 10.0],
-        jnp.r_[-1e-3, 1.0, 10.0],
-        jnp.r_[2e-4, -1.0, 10.0],
-    ]
-]
-t_ref = (jnp.linspace(0, n_steps * dt, n_splits),) * 3
-t_sample = jnp.r_[0:n_steps] * dt
-ms = planning.MinimumSnap(5, [0, 0, 1, 1], planning.MinimumSnapAlgorithm.CONSTRAINED)
-
-states_traj, inputs_traj = ms.generate_trajectories(t_ref, p_refs, t_sample)
+obs_comps = jnp.array(cfg["opc"]["observed_components"])
 x0 = states_traj[:, :, 100].ravel()
 us = (
     inputs_traj[:, :, 100 : 100 + window]
@@ -131,7 +134,6 @@ cov["opt"] = run_state_est(kf, xs["opt"], us, dt, 0.2 * jnp.eye(30))[i_stlog]
 stddev = {k: 3 * jnp.sqrt(jnp.diagonal(v, axis1=1, axis2=2)) for k, v in cov.items()}
 
 fig, axs = plt.subplots(2, 3)
-print(len(axs))
 time = jnp.r_[0:window] * dt
 for idv in range(2):
     for idx, it in enumerate("xyz"):

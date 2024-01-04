@@ -264,9 +264,9 @@ class MinimumSnap:
         )
         return tvec
 
-    def generate_trajectories(self, t_refs, p_refs, t_sample):
+    def generate_trajectories(self, t_refs, p_refs, t_samples):
         traj = []
-        for p_ref, t_ref in zip(p_refs, t_refs):
+        for p_ref, t_ref, t_sample in zip(p_refs, t_refs, t_samples):
             pp = self.generate(p_ref, t_ref)
             real_traj = pp.to_real_trajectory(1.0, t_sample)
             traj.append((real_traj.states, real_traj.inputs))
