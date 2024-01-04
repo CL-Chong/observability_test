@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.numpy.linalg as la
 from scipy import optimize, special
-
+import itertools
 
 from .. import utils
 
@@ -61,7 +61,10 @@ def forward_dynamics(dynamics, x0, u, dt, method="euler"):
         x_new = x_op + dt * increment
         return x_new, x_new
 
-    u = jnp.atleast_2d(u)
+    if u.ndim == 1:
+        _, x = _update(x0, (u, dt))
+        return x
+
     _, x = jax.lax.scan(_update, init=x0, xs=(u, dt))
     return x
 
@@ -177,6 +180,8 @@ class CooperativeOPCProblem:
         self._nu = self.model.nu
         self._robot_nu = self.model.robot_nu
         self._n_robots = self.model.n_robots
+        self._combs = jnp.array(list(itertools.combinations(range(self._n_robots), 2)))
+
         self._id_const = jnp.arange(opts.id_leader, opts.id_leader + self._robot_nu)
 
         self._id_mut = utils.complementary_indices(self._nu, self._id_const)
@@ -202,8 +207,8 @@ class CooperativeOPCProblem:
         ):
             self.problem.constraints = optimize.NonlinearConstraint(
                 lambda u: self.constraint(u, *self.problem.args),
-                lb=jnp.full((self._n_robots - 1) * opts.window, 0.2),
-                ub=jnp.full((self._n_robots - 1) * opts.window, 10.0),
+                lb=jnp.full(self._combs.shape[0] * opts.window, opts.min_v2v_dist),
+                ub=jnp.full(self._combs.shape[0] * opts.window, opts.max_v2v_dist),
             )
             self.problem.constraints.jac = jax.jacfwd(self.problem.constraints.fun)
 
@@ -235,8 +240,8 @@ class CooperativeOPCProblem:
         dt = jnp.broadcast_to(dt, us.shape[0])
         xs = forward_dynamics(self.model.dynamics, x, us, dt)
         pos = xs.reshape(xs.shape[0], -1, 10)[:, :, 0:3]
-        dp = pos[:, 1:, :] - pos[:, [0], :]
-        dp_nrm = (dp * dp).sum(axis=-1).ravel()
+        dp = jnp.diff(pos[:, self._combs, :], axis=2)
+        dp_nrm = (dp**2).sum(axis=-1).ravel()
         return dp_nrm
 
     def minimize(self, x0, u0, t) -> optimize.OptimizeResult:
