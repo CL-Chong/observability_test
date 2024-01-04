@@ -195,12 +195,17 @@ class CooperativeOPCProblem:
         self.problem.method, self.problem.options = opts.method, opts.optim_options
         self.problem.bounds = optimize.Bounds(self._u_lb, self._u_ub)  # type: ignore
 
-        self.problem.constraints = optimize.NonlinearConstraint(
-            lambda u: self.constraint(u, *self.problem.args),
-            lb=jnp.full((self._n_robots - 1) * opts.window, opts.min_v2v_dist**2),
-            ub=jnp.full((self._n_robots - 1) * opts.window, opts.max_v2v_dist**2),
-        )
-        self.problem.constraints.jac = jax.jacfwd(self.problem.constraints.fun)
+        if (
+            opts.max_v2v_dist > 0
+            and opts.min_v2v_dist > 0
+            and opts.max_v2v_dist > opts.min_v2v_dist
+        ):
+            self.problem.constraints = optimize.NonlinearConstraint(
+                lambda u: self.constraint(u, *self.problem.args),
+                lb=jnp.full((self._n_robots - 1) * opts.window, 0.2),
+                ub=jnp.full((self._n_robots - 1) * opts.window, 10.0),
+            )
+            self.problem.constraints.jac = jax.jacfwd(self.problem.constraints.fun)
 
     @property
     def stlog(self):

@@ -1,0 +1,51 @@
+[model]
+n_robots = 3
+robot_mass = 1.0
+
+[stlog]
+order = 1
+
+[opc]
+window_size = 20
+observed_components = [10, 11, 12, 20, 21, 22]
+
+[initial_path]
+degree = 5
+derivative_weights = [0, 0, 1, 1]
+time_reference = [0, 40]
+position_reference = [
+  [
+
+    [2.0, 52.0],    # Force horizontal listing
+    [0.001, 0.001],
+    [10.0, 10.0],
+
+  ],
+  [
+    [-0.001, 49.999], # Force horizontal listing
+    [1.0, 1.0],
+    [10.0, 10.0],
+  ],
+  [
+    [0.0002, 50.0002], # Force horizontal listing
+    [-1.0, -1.0],
+    [10.0, 10.0],
+  ],
+]
+n_timesteps = 100
+
+[optim]
+method = "trust-constr"
+ub = [11.0, 0.4, 0.4, 2.0]
+lb = [0.0, -0.4, -0.4, -2.0]
+
+[optim.options]
+disp = false
+xtol = 1e-5
+verbose = 0
+maxiter = 1000
+
+
+[trials]
+init_timestep = 50
+random_trials = 100
