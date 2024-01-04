@@ -150,9 +150,8 @@ class OPCCost:
         stlog = jax.vmap(self.stlog)(xs, us, dt)[self._i_stlog]
         res = -la.norm(stlog, -2, axis=(1, 2)).sum()
         if return_stlog or return_traj:
-            res = (res,)
             if return_stlog:
-                res += (stlog,)
+                res = (res, stlog)
             if return_traj:
                 res += (xs,)
             return res
@@ -294,4 +293,4 @@ def numlog(sys, x0, u, dt, eps, axis=None, perturb_axis=None, f_args=None, h_arg
         )
     if jnp.any(dt <= 0):
         raise ValueError("Discrete time-step is not positive.")
-    return _numlog(sys, x0, u, dt, eps, axis, perturb_axis, f_args, h_args)
+    return _numlog(sys, x0, u, dt, eps, axis, perturb_axis)
