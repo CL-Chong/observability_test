@@ -207,8 +207,8 @@ class CooperativeOPCProblem:
         ):
             self.problem.constraints = optimize.NonlinearConstraint(
                 lambda u: self.constraint(u, *self.problem.args),
-                lb=jnp.full(self._combs.shape[0] * opts.window, opts.min_v2v_dist),
-                ub=jnp.full(self._combs.shape[0] * opts.window, opts.max_v2v_dist),
+                lb=jnp.full(self._combs.shape[0] * opts.window, opts.min_v2v_dist**2),
+                ub=jnp.full(self._combs.shape[0] * opts.window, opts.max_v2v_dist**2),
             )
             self.problem.constraints.jac = jax.jacfwd(self.problem.constraints.fun)
 

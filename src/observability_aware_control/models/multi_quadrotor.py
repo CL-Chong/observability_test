@@ -11,10 +11,22 @@ class MultiQuadrotor(model_base.MRSBase):
     DIM_ATT_OBS = 4
     DIM_BRNG_OBS = 2
     DIM_ALT_OBS = 1
+    DIM_VEL_OBS = 3
 
-    def __init__(self, n_robots, mass):
+    def __init__(self, n_robots, mass, has_baro=False, has_odom=False):
         self._n_robots = n_robots
         self._mass = jnp.broadcast_to(mass, n_robots)
+        self._has_baro = has_baro
+        self._has_odom = has_odom
+        self._ny = (
+            self.DIM_LEADER_POS_OBS
+            + self._n_robots * self.DIM_ATT_OBS
+            + (self._n_robots - 1) * self.DIM_BRNG_OBS
+        )
+        if has_baro:
+            self._ny += (self._n_robots - 1) * self.DIM_ALT_OBS
+        if has_odom:
+            self._ny += self._n_robots * self.DIM_VEL_OBS
 
     @property
     def robot_nx(self):
@@ -37,20 +49,23 @@ class MultiQuadrotor(model_base.MRSBase):
 
     @property
     def ny(self):
-        return (
-            self.DIM_LEADER_POS_OBS
-            + (self._n_robots - 1) * self.DIM_ALT_OBS
-            + self._n_robots * self.DIM_ATT_OBS
-            + (self._n_robots - 1) * self.DIM_BRNG_OBS
-        )
+        return self._ny
 
     def observation(self, x):
         x = self.reshape_x_vec(x)
-        h_att = x[:, 3:7].ravel()
         pos_ref = x[0, 0:3]
-        alt = x[1:, 2]
-
+        att = x[:, 3:7].ravel()
         obs = jax.vmap(quadrotor.observation, in_axes=(0, None))
 
         h_bearings = obs(x[1:, :], pos_ref).ravel()
-        return jnp.concatenate([pos_ref, alt, h_att, h_bearings])
+
+        res = (pos_ref, att, h_bearings)
+        if self._has_baro:
+            alt = x[1:, 2]
+            res += (alt,)
+        if self._has_odom:
+            vel = x[:, 7:10].ravel()
+            res += (vel,)
+        return jnp.concatenate(res)
+
+        # return jnp.concatenate([pos_ref, alt, h_att, h_bearings])

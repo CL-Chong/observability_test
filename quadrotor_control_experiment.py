@@ -94,9 +94,13 @@ def main():
             )
             soln_u = np.concatenate([u_leader[:, i - 1], soln.x[0, mdl.robot_nu :]])
 
-            status.append(soln.status)
-            nit.append(soln.nit)
-            fun_hist = np.full(cfg["optim"]["options"]["maxiter"], np.inf)
+            soln_stats["status"].append(soln.status)
+            soln_stats["nit"].append(soln.get("nit", np.nan))
+            soln_stats["execution_time"].append(soln.get("execution_time", np.nan))
+            soln_stats["constr_violation"].append(soln.get("constr_violation", np.nan))
+            soln_stats["optimality"].append(soln.get("optimality", np.nan))
+
+            fun_hist = np.full(cfg["optim"]["options"]["maxiter"], soln.fun)
             fun_hist[0 : len(soln.fun_hist)] = np.asarray(soln.fun_hist)
             fun_hists.append(np.array(fun_hist))
             u[i, :] = soln_u
@@ -114,14 +118,13 @@ def main():
                 anim.z[idx] = plt_data[:, idx, 2]
             plt.pause(1e-3)
 
+    soln_stats = {k: np.asarray(v) for k, v in soln_stats.items()}
     np.savez(
         "data/optimization_results.npz",
         states=x,
         inputs=u,
         time=time,
-        status=status,
-        nit=nit,
-        fun_hist=np.asarray(fun_hists),
+        **soln_stats,
     )
 
     figs = {}
