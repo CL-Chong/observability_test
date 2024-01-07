@@ -1,13 +1,13 @@
 import dataclasses
 import functools
 import inspect
+import itertools
 from typing import Any, Dict, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
 import jax.numpy.linalg as la
 from scipy import optimize, special
-import itertools
 
 from .. import utils
 
@@ -116,7 +116,7 @@ class STLOG:
         self._a, self._b, *_ = jnp.ix_(order_seq, order_seq)
         self._k = self._a + self._b + 1
         facts = jnp.asarray(special.factorial(order_seq, exact=True))
-        self._den = facts[self._a] * facts[self._b]
+        self._den = facts[self._a] * facts[self._b] * self._k
 
     @property
     def model(self):
