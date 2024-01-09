@@ -1,24 +1,36 @@
+[session]
+initial_positions = [
+    [
+        4,
+        0,
+        10.0,
+    ],
+    [
+        -2.0,
+        3.46410162,
+        10.0,
+    ],
+    [
+        -2.0,
+        -3.46410162,
+        10.0,
+    ],
+]
+leader_trajectory = "./data/trajectory_data.npz"
+save_name = "./data/optimization_results.npz"
+
 [model]
 n_robots = 3
 robot_mass = 1.0
 
 [stlog]
-order = 1
+order = 2
 
 [opc]
-window_size = 20
+window_size = 40
 observed_components = [10, 11, 12, 20, 21, 22]
-max_inter_vehicle_distance = 100
-min_inter_vehicle_distance = 2
-
-[initial_path]
-initial_positions = [[1, 0, 0], [-0.5, 0.8660254, 0.0], [-0.5, -0.8660254, 0.0]]
-leader_trajectory = "./data/trajectory_data.npz"
-degree = 5
-derivative_weights = [0, 0, 1, 1]
-time_reference = [0, 12.5, 25, 37.5, 50, 62.5, 75, 87.5, 100]
-
-n_timesteps = 500
+min_inter_vehicle_distance = 1
+max_inter_vehicle_distance = 8
 
 [optim]
 method = "trust-constr"
@@ -33,4 +45,4 @@ verbose = 0
 maxiter = 150
 
 [sim]
-steps = 300
+steps = 2000
