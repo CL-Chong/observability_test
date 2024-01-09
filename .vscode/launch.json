@@ -5,20 +5,20 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Optimization",
+      "name": "Quadrotor Control Experiment",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceFolder}/stlog_test.py",
+      "program": "${workspaceFolder}/quadrotor_control_experiment.py",
       "console": "integratedTerminal",
       "env": {
         "PYTHONPATH": "${workspaceFolder}/src"
       }
     },
     {
-      "name": "Comparative Study",
+      "name": "State Estimation Experiment",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceFolder}/main.py",
+      "program": "${workspaceFolder}/state_estimation_experiment.py",
       "console": "integratedTerminal",
       "justMyCode": true,
       "env": {
