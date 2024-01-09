@@ -18,8 +18,8 @@ class SimpleEKF:
     ):
         self.fcn = fcn
         self.hfcn = hfcn
-        self._fjac = jax.jit(jax.jacfwd(fcn, argnums=(0, 1)))
-        self._hjac = jax.jit(jax.jacfwd(hfcn))
+        self._fjac = jax.jacfwd(fcn, argnums=(0, 1))
+        self._hjac = jax.jacfwd(hfcn)
         self._in_cov = in_cov
         self._obs_cov = obs_cov
         self._resid_fcn = resid_fcn
@@ -48,6 +48,7 @@ class SimpleEKF:
             return x_op, kf_cov
 
         x_wa = jnp.atleast_2d(x_op)
+        y = jnp.atleast_2d(y)
         n_meas = y.shape[0]
         shape = (n_meas, x_wa.shape[1])
         x_wa = jnp.broadcast_to(x_wa, shape)
