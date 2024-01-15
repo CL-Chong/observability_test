@@ -4,12 +4,12 @@ n_samples = 50
 
 load = "data/state_estimation_data.pkl"
 save = "data/state_estimation_data.pkl"
-image_save = "data/state_estimation_results.png"
+image_save = "/home/hs293go/Documents/tex/hsgo-papers/papers/observability_aware_control/graphics/state_estimation_results.png"
 
 [session.experimental_data]
 "Uniform Motion" = { "file" = "./data/lemniscate_optimization_results_unoptimized.npz" }
-"Optimized Order-1 STLOG" = { "file" = "./data/lemniscate_optimization_results_all_comps_o1.npz" }
-"Optimized Order-2 STLOG" = { "file" = "./data/lemniscate_optimization_results_all_comps_o2.npz" }
+"Optimized Order-1 STLOG" = { "file" = "./data/lemniscate_optimization_results_o1.npz" }
+"Optimized Order-2 STLOG" = { "file" = "./data/lemniscate_optimization_results_o2.npz" }
 
 [model]
 n_robots = 3

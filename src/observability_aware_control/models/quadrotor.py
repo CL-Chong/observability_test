@@ -37,7 +37,7 @@ def quaternion_rotate_point(quaternion, point, invert_rotation=False):
     return point + quaternion[3] * uv + _fast_cross(vec, uv)
 
 
-@jax.jit
+@functools.partial(jax.jit, donate_argnums=(0,))
 def dynamics(x, u, mass):
     q = x[3:7]
     v = x[7:10]

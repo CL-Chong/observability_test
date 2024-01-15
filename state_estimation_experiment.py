@@ -99,25 +99,24 @@ def main():
 
 
 def run_plot(n_robots, trial, config):
-    fig, axs = plt.subplots(ncols=n_robots - 1, figsize=(10, 5))
+    fig, ax1 = plt.subplots(nrows=n_robots - 1)
     for id_trial, (trial_name, trial_it) in enumerate(trial.items()):
         time, cov_hist, x_err = trial_it
 
         for idx in range(1, n_robots):
-            ax = axs[idx - 1]
             err_mag = np.linalg.norm(x_err[:, idx, :], axis=-1)
-            ax.plot(time, err_mag)
+            ax1[idx - 1].plot(time, err_mag)
             cov_mag = np.linalg.norm(cov_hist[:, idx, :], axis=-1)
             rmse = rms(err_mag)
-            ax.axhline(y=rmse, linestyle="--", color=f"C{id_trial}")
+            ax1[idx - 1].axhline(y=rmse, linestyle="--", color=f"C{id_trial}")
             l, r = time[0], time[-1]
 
-            text_x_pos = l + (0.1 + 0.2 * id_trial) * (r - l)
+            text_x_pos = l + (0.05 + 0.33 * id_trial) * (r - l)
 
-            ax.annotate(
+            ax1[idx - 1].annotate(
                 (f"{trial_name}\n" r"RMS($||\hat{\mathbf{e}}_p||$) = " f"{rmse:.4}m"),
                 (text_x_pos, rmse),
-                (text_x_pos, 1.5 * rmse + 2),
+                (text_x_pos, 7),
                 arrowprops={
                     "width": 1,
                     "facecolor": "k",
@@ -126,11 +125,13 @@ def run_plot(n_robots, trial, config):
                 },
                 fontsize=8,
             )
-            ax.set_ylabel("Magitude of Position Estimation Error (m)")
-            ax.set_xlabel("Time (s)")
-            ax.set_title(f"Follower {idx}")
-            ax.fill_between(time, cov_mag, alpha=0.2)
+            ax1[idx - 1].set_ylabel(r"\hat{\mathbf{e}}_p (m)")
+            ax1[idx - 1].set_xlabel("Time (s)")
+            ax1[idx - 1].set_title(f"Follower {idx}")
+            ax1[idx - 1].fill_between(time, cov_mag, alpha=0.2)
+            ax1[idx - 1].set_ylim(top=9)
     new_var = config["session"].get("image_save", "state_estimation_results.png")
+    fig.tight_layout()
     fig.savefig(new_var)
     plt.show()
 
@@ -141,13 +142,13 @@ def run_experiment(mdl, config):
             lambda x, u, dt: forward_dynamics(mdl.dynamics, x, u, dt, method="euler")
         ),
         jax.jit(mdl.observation),
-        jnp.diag(jnp.tile(jnp.r_[1, jnp.full(3, 1)], mdl.n_robots)) / 10,
+        jnp.diag(jnp.tile(jnp.r_[1, jnp.full(3, 1)], mdl.n_robots)),
         jnp.diag(
             jnp.r_[
-                jnp.full(mdl.DIM_LEADER_POS_OBS, 1e-4),
-                jnp.full(mdl.DIM_ATT_OBS * mdl.n_robots, 1e-3),
+                jnp.full(mdl.DIM_LEADER_POS_OBS, 1e-1),
+                jnp.full(mdl.DIM_ATT_OBS * mdl.n_robots, 1e-2),
                 jnp.full(mdl.DIM_BRNG_OBS * (mdl.n_robots - 1), 1e-2),
-                jnp.full(mdl.DIM_VEL_OBS * mdl.n_robots, 1e-3),
+                jnp.full(mdl.DIM_VEL_OBS * mdl.n_robots, 1e-2),
             ]
         ),
     )

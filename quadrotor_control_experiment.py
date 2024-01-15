@@ -98,7 +98,7 @@ def main():
         u_leader[:input_steps, :] = u_leader_tmp
         u_leader[input_steps:, :] = u_leader[-1, :]
 
-    u0 = np.r_[u_leader[0, :], np.tile(u_eqm, 2)]
+    u0 = np.r_[u_leader[0, :], np.tile(u_eqm, mdl.n_robots - 1)]
     u[0, :] = u0
 
     soln_stats = {
@@ -143,7 +143,11 @@ def main():
                 fun_hist[0 : len(soln.fun_hist)] = np.asarray(soln.fun_hist)
                 soln_stats["fun_hist"].append(fun_hist)
 
-                anim.annotation = f"nit: {nit} f(x): {fun:.4}\n $\\Delta$ f(x): {(fun - fun_hist[0]):4g}\nOptimality: {optimality:.4}\nviolation: {constr_violation:.4}"
+                anim.annotation = (
+                    f"nit: {nit} f(x): {fun:.4}\n $\\Delta$ f(x):"
+                    f" {(fun - fun_hist[0]):4g}\nOptimality:"
+                    f" {optimality:.4}\nviolation: {constr_violation:.4}"
+                )
                 plt_data = np.reshape(x[0:i, :], (i, mdl.n_robots, mdl.robot_nx))
 
                 anim.t = time[0:i]

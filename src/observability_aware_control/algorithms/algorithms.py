@@ -230,7 +230,7 @@ class CooperativeOPCProblem:
     def opc(self, u, x, dt, return_stlog=False, return_traj=False):
         return self._opc(u, x, dt, return_stlog, return_traj)
 
-    @functools.partial(jax.jit, static_argnames=("self"))
+    @functools.partial(jax.jit, static_argnames=("self",))
     def objective(self, u, u_const, x, dt):
         return self._opc(self.combine_input(u, u_const), x, dt)
 
