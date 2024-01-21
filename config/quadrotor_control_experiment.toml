@@ -16,18 +16,18 @@ initial_positions = [
         10.0,
     ],
 ]
-leader_trajectory = "./data/straight_trajectory_data.npz"
-save_name = "./data/straight_optimization_results_o1.npz"
+leader_trajectory = "./data/lemniscate_trajectory_data.npz"
+save_name = "./data/lemniscate_optimization_results_o2_log_v2.npz"
 
 [model]
 n_robots = 3
 robot_mass = 1.0
 
 [stlog]
-order = 1
+order = 2
 
 [opc]
-window_size = 40
+window_size = 20
 observed_components = [10, 11, 12, 20, 21, 22]
 max_inter_vehicle_distance = 8
 min_inter_vehicle_distance = 0.5
@@ -47,4 +47,4 @@ verbose = 0
 maxiter = 150
 
 [sim]
-steps = 500
+steps = 2000

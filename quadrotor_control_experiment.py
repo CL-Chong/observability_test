@@ -1,15 +1,12 @@
-import math
 import sys
 
 import jax
-import jax.numpy as jnp
 import jax.experimental.compilation_cache.compilation_cache as cc
 import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
 import tomllib
 
-import observability_aware_control.algorithms.misc.trajectory_generation as planning
 from observability_aware_control.algorithms import (
     STLOG,
     CooperativeLocalizationOptions,
@@ -47,11 +44,22 @@ def main():
     )
 
     # ---------------------------Setup the Optimizer----------------------------
-    stlog = STLOG(mdl, cfg["stlog"]["order"])
+    stlog = STLOG(
+        mdl,
+        cfg["stlog"]["order"],
+        cov=np.diag(
+            np.r_[
+                np.full(mdl.DIM_LEADER_POS_OBS, 1e-1),
+                np.full(mdl.DIM_ATT_OBS * mdl.n_robots, 1e-2),
+                np.full(mdl.DIM_BRNG_OBS * (mdl.n_robots - 1), 1e-2),
+                np.full(mdl.DIM_VEL_OBS * mdl.n_robots, 1e-2),
+            ]
+        ),
+    )
 
     window = cfg["opc"]["window_size"]
-    u_lb = jnp.tile(jnp.array(cfg["optim"]["lb"]), (window, mdl.n_robots))
-    u_ub = jnp.tile(jnp.array(cfg["optim"]["ub"]), (window, mdl.n_robots))
+    u_lb = np.tile(np.array(cfg["optim"]["lb"]), (window, mdl.n_robots))
+    u_ub = np.tile(np.array(cfg["optim"]["ub"]), (window, mdl.n_robots))
     opts = CooperativeLocalizationOptions(
         window=window,
         id_leader=0,
@@ -117,8 +125,7 @@ def main():
             for i in tqdm.trange(1, sim_steps):
                 u_leader_0 = u_leader[i - 1 : i - 1 + window, :]
 
-                # u0 = jnp.hstack([u_leader_0, np.tile(u_eqm, (window, 2))])
-                u0 = jnp.tile(u_leader_0, (1, 3))
+                u0 = np.hstack([u_leader_0, np.tile(u_eqm, (window, 2))])
                 soln = min_problem.minimize(x[i - 1, :], u0, dt)
                 soln_u = np.concatenate([u_leader[i - 1, :], soln.x[0, mdl.robot_nu :]])
                 u[i, :] = soln_u

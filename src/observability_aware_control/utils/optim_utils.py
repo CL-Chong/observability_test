@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, Literal, Optional, Tuple, Union
 
 import matplotlib.pyplot as plt
 import numpy as np
-from jax.typing import ArrayLike
+from numpy.typing import ArrayLike
 from scipy import optimize
 
 Method = Union[
@@ -66,8 +66,11 @@ class OptimizationRecorder:
         self._nit = []
 
     def update(self, intermediate_result):
-        self._fun.append(intermediate_result.fun)
-        self._nit.append(intermediate_result.nit)
+        try:
+            self._fun.append(intermediate_result.get("fun", -1.0))
+            self._nit.append(intermediate_result.get("nit", -1))
+        except:
+            pass
 
     @property
     def fun(self):

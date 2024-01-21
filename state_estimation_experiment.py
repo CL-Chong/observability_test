@@ -32,7 +32,7 @@ def run_state_est(kf, xs, us, dt, cov_op_init, key):
         return res, res
 
     xs_tup = (jnp.array(xs[0, ...]), jnp.array(cov_op_init))
-    u_noise = gaussian_noise(f_key, kf.in_cov, us.shape)
+    u_noise = gaussian_noise(f_key, kf.in_cov, us.shape) / 4
     ys = jax.vmap(kf.hfcn)(xs)
     y_noise = gaussian_noise(h_key, kf.obs_cov, ys.shape)
     us_tup = (us + u_noise, ys + y_noise)
@@ -142,10 +142,10 @@ def run_experiment(mdl, config):
             lambda x, u, dt: forward_dynamics(mdl.dynamics, x, u, dt, method="euler")
         ),
         jax.jit(mdl.observation),
-        jnp.diag(jnp.tile(jnp.r_[1, jnp.full(3, 1)], mdl.n_robots)),
+        jnp.diag(jnp.tile(jnp.r_[1, jnp.full(3, 1)] / 20, mdl.n_robots)),
         jnp.diag(
             jnp.r_[
-                jnp.full(mdl.DIM_LEADER_POS_OBS, 1e-1),
+                jnp.full(mdl.DIM_LEADER_POS_OBS, 1e-2),
                 jnp.full(mdl.DIM_ATT_OBS * mdl.n_robots, 1e-2),
                 jnp.full(mdl.DIM_BRNG_OBS * (mdl.n_robots - 1), 1e-2),
                 jnp.full(mdl.DIM_VEL_OBS * mdl.n_robots, 1e-2),

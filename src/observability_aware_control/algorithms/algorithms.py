@@ -3,11 +3,14 @@ import functools
 import inspect
 import itertools
 from typing import Any, Dict, Optional, Tuple
+import warnings
 
 import jax
 import jax.numpy as jnp
 import jax.numpy.linalg as la
 from scipy import optimize, special
+
+from numpy.typing import ArrayLike
 
 from .. import utils
 
@@ -18,8 +21,10 @@ NU = 2
 jitmember = functools.partial(jax.jit, static_argnames=("self",))
 
 
-@functools.partial(jax.jit, static_argnames=("dynamics", "method"))
-def forward_dynamics(dynamics, x0, u, dt, method="euler"):
+@functools.partial(
+    jax.jit, static_argnames=("dynamics", "method", "return_derivatives")
+)
+def forward_dynamics(dynamics, x0, u, dt, method="euler", return_derivatives=False):
     """Run forward simulation of a dynamical system
 
     Details
@@ -47,18 +52,21 @@ def forward_dynamics(dynamics, x0, u, dt, method="euler"):
 
     def _update(x_op, tup):
         u, dt = tup
+        dx = dynamics(x_op, u)
         if method == "RK4":
             k = jnp.empty((4, x_op.size))
-            k = k.at[0, :].set(dynamics(x_op, u))
+            k = k.at[0, :].set(dx)
             k = k.at[1, :].set(dynamics(x_op + dt / 2 * k[0, :], u))
             k = k.at[2, :].set(dynamics(x_op + dt / 2 * k[1, :], u))
             k = k.at[3, :].set(dynamics(x_op + dt * k[2, :], u))
             increment = jnp.array([1, 2, 2, 1]) @ k / 6
         elif method == "euler":
-            increment = dynamics(x_op, u)
+            increment = dx
         else:
             raise NotImplementedError(f"{method} is not a valid integration method")
         x_new = x_op + dt * increment
+        if return_derivatives:
+            return x_new, (x_new, dx)
         return x_new, x_new
 
     if u.ndim == 1:
@@ -78,7 +86,7 @@ def _lie_derivative(fun, vector_field, order):
     # Zeroth-order Lie Derivative
     funsig = inspect.signature(fun)
     if "u" not in funsig.parameters:
-        lfh = lambda x, u: fun(x)
+        lfh = lambda x, u: fun(x)  # pylint: disable=unnecessary-lambda-assignment
     else:
         lfh = fun
 
@@ -130,34 +138,47 @@ class STLOG:
 
 
 class OPCCost:
-    def __init__(self, stlog: STLOG, obs_comps):
+    def __init__(self, stlog: STLOG, obs_comps: ArrayLike):
         self._stlog = stlog
-        self._nu = self.stlog.model.nu
         if obs_comps:
             obs_comps = jnp.asarray(obs_comps, dtype=jnp.int32)
-            self._i_stlog = (...,) + jnp.ix_(obs_comps, obs_comps)
+            self._i_stlog = jnp.ix_(obs_comps, obs_comps)
         else:
             self._i_stlog = ...
-
-    @property
-    def stlog(self):
-        return self._stlog
 
     @property
     def model(self):
         return self._stlog.model
 
     def __call__(self, us, x, dt, return_stlog=False, return_traj=False):
-        dt = jnp.broadcast_to(dt, us.shape[0])
-        xs = forward_dynamics(self.stlog.model.dynamics, x, us, dt)
-        stlog = jax.vmap(self.stlog)(xs, us, dt)[self._i_stlog]
-        res = -la.norm(stlog, -2, axis=(1, 2)).sum()
-        if return_stlog or return_traj:
-            if return_stlog:
-                res = (res, stlog)
-            if return_traj:
-                res += (xs,)
-            return res
+        # Real-time integration: Predict the system trajectory over the following stages
+        xs = forward_dynamics(self.model.dynamics, x, us, dt)
+
+        # Wraps stlog to be batch-evaluated over the following stages, with the result
+        # to be sliced
+        @jax.vmap
+        def eval_stlog(x, u, dt):
+            return self._stlog(x, u, dt)[self._i_stlog]
+
+        # STLOGs are cached to a variable that may be optionally returned
+        stlog = eval_stlog(xs, us, dt)
+
+        # Evaluate (minimum) singular values for each STLOG in the stack
+        # Sum them up, then apply inverse-of-logarithm scaling
+        objective = 1 / jnp.log(
+            la.svd(stlog, compute_uv=False, hermitian=True).min(axis=1).sum()
+        )
+
+        if not (return_stlog or return_traj):
+            return objective
+
+        # Return more than just the objective value
+        # Wrap it in a tuple then selectively add elements to return
+        res = (objective,)
+        if return_stlog:
+            res += (stlog,)
+        if return_traj:
+            res += (xs,)
         return res
 
 
@@ -166,8 +187,8 @@ class CooperativeLocalizationOptions:
     window: int = dataclasses.field(default=1)
     obs_comps: Tuple[int, ...] = dataclasses.field(default=())
     id_leader: int = dataclasses.field(default=0)
-    ub: jax.Array = dataclasses.field(default_factory=lambda: -jnp.array(jnp.inf))
-    lb: jax.Array = dataclasses.field(default_factory=lambda: jnp.array(jnp.inf))
+    ub: ArrayLike = dataclasses.field(default_factory=lambda: -jnp.array(jnp.inf))
+    lb: ArrayLike = dataclasses.field(default_factory=lambda: jnp.array(jnp.inf))
     min_v2v_dist: float = dataclasses.field(default=0.0)
     max_v2v_dist: float = dataclasses.field(default=jnp.inf)
     method: Optional[utils.optim_utils.Method] = dataclasses.field(default=None)
@@ -176,45 +197,56 @@ class CooperativeLocalizationOptions:
 
 class CooperativeOPCProblem:
     def __init__(self, stlog: STLOG, opts: CooperativeLocalizationOptions):
+        # Initialize the underlying cost function
         self._opc = OPCCost(stlog, opts.obs_comps)
+
+        # Pick up some constants from the model inside the OPC
         self._nu = self.model.nu
         self._robot_nu = self.model.robot_nu
         self._n_robots = self.model.n_robots
-        self._combs = jnp.array(list(itertools.combinations(range(self._n_robots), 2)))
 
+        # The following members are used to split/reform the input trajectory to/from
+        # constant/mutable parts
+        self._u_shape = (opts.window, self._nu)
         self._id_const = jnp.arange(opts.id_leader, opts.id_leader + self._robot_nu)
-
         self._id_mut = utils.complementary_indices(self._nu, self._id_const)
         self._n_mut = len(self._id_mut)
 
-        self._u_shape = (opts.window, self._nu)
+        # Broadcast bounds over all time windows, takes mutable components, then flatten
+        lb = jnp.broadcast_to(jnp.array(opts.lb), self._u_shape)[
+            ..., self._id_mut
+        ].ravel()
 
-        self._u_lb = jnp.broadcast_to(opts.lb, self._u_shape)[..., self._id_mut].ravel()
-        self._u_ub = jnp.broadcast_to(opts.ub, self._u_shape)[..., self._id_mut].ravel()
+        ub = jnp.broadcast_to(jnp.array(opts.ub), self._u_shape)[
+            ..., self._id_mut
+        ].ravel()
 
         self.problem = utils.optim_utils.MinimizeProblem(
-            jax.jit(self.objective), jnp.zeros(self._u_shape)
+            jax.jit(self.objective),
+            jnp.zeros(self._u_shape),
+            jac=jax.jit(jax.grad(self.objective)),
+            method=opts.method,
+            options=opts.optim_options,
+            bounds=optimize.Bounds(lb, ub),  # type: ignore
         )
-        self.problem.jac = jax.jit(jax.grad(self.objective))
 
-        self.problem.method, self.problem.options = opts.method, opts.optim_options
-        self.problem.bounds = optimize.Bounds(self._u_lb, self._u_ub)  # type: ignore
+        if 0 < opts.min_v2v_dist < opts.max_v2v_dist:
+            # Compute pairs of quadrotors whose pair-wise distance must be constrained
+            self._combs = jnp.array(
+                list(itertools.combinations(range(self._n_robots), 2))
+            )
 
-        if (
-            opts.max_v2v_dist > 0
-            and opts.min_v2v_dist > 0
-            and opts.max_v2v_dist > opts.min_v2v_dist
-        ):
             self.problem.constraints = optimize.NonlinearConstraint(
                 lambda u: self.constraint(u, *self.problem.args),
                 lb=jnp.full(self._combs.shape[0] * opts.window, opts.min_v2v_dist**2),
                 ub=jnp.full(self._combs.shape[0] * opts.window, opts.max_v2v_dist**2),
             )
-            self.problem.constraints.jac = jax.jacfwd(self.problem.constraints.fun)
-
-    @property
-    def stlog(self):
-        return self._opc.stlog
+            cjac = jax.jacfwd(self.constraint)
+            self.problem.constraints.jac = lambda u: cjac(u, *self.problem.args)  # type: ignore
+        else:
+            warnings.warn(
+                "Invalid bounds, vehicle-to-vehicle ranges will not be constrained"
+            )
 
     @property
     def model(self):
@@ -228,6 +260,7 @@ class CooperativeOPCProblem:
 
     @functools.partial(jax.jit, static_argnames=("self", "return_stlog", "return_traj"))
     def opc(self, u, x, dt, return_stlog=False, return_traj=False):
+        dt = jnp.broadcast_to(dt, u.shape[0])
         return self._opc(u, x, dt, return_stlog, return_traj)
 
     @functools.partial(jax.jit, static_argnames=("self",))
@@ -289,7 +322,7 @@ def _numlog(sys, x0, u, dt, eps, axis, perturb_axis):
     return jnp.sum(dt * y_all[:, :, xm] * y_all[:, :, ym], axis=(0, 1))
 
 
-def numlog(sys, x0, u, dt, eps, axis=None, perturb_axis=None, f_args=None, h_args=None):
+def numlog(sys, x0, u, dt, eps, axis=None, perturb_axis=None):
     x0 = jnp.asarray(x0)
     u = jnp.asarray(u)
     dt = jnp.asarray(dt)

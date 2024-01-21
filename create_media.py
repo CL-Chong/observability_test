@@ -77,10 +77,10 @@ def plot_3d_trajectory(t, states):
     ax.set_ylabel("Y (m)")
     ax = plt.gca()
     ax.set_zlabel("Z (m)")
-    ax.set_zlim([5, 15])
+    ax.set_zlim([5, 12])
     ax.legend()
     fig.savefig(
-        "/home/hs293go/Documents/tex/hsgo-papers/papers/observability_aware_control/graphics/3d_lemniscate_o2_trajectories.png"
+        "/home/hs293go/Documents/tex/hsgo-papers/papers/observability_aware_control/graphics/3d_lemniscate_o1_trajectories.png"
     )
 
     fig, ax = plt.subplots()
@@ -94,7 +94,7 @@ def plot_3d_trajectory(t, states):
     ax.set_ylabel("Y (m)")
     ax.legend()
     fig.savefig(
-        "/home/hs293go/Documents/tex/hsgo-papers/papers/observability_aware_control/graphics/2d_lemniscate_o2_trajectories.png"
+        "/home/hs293go/Documents/tex/hsgo-papers/papers/observability_aware_control/graphics/2d_lemniscate_o1_trajectories.png"
     )
 
     fig, ax = plt.subplots()
@@ -108,7 +108,7 @@ def plot_3d_trajectory(t, states):
     ax.set_ylabel("Z (m)")
     ax.legend()
     fig.savefig(
-        "/home/hs293go/Documents/tex/hsgo-papers/papers/observability_aware_control/graphics/z_lemniscate_o2_trajectories.png"
+        "/home/hs293go/Documents/tex/hsgo-papers/papers/observability_aware_control/graphics/z_lemniscate_o1_trajectories.png"
     )
 
 
