@@ -1,21 +1,19 @@
 import sys
+import tomllib
 
 import jax
 import jax.experimental.compilation_cache.compilation_cache as cc
 import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
-import tomllib
 
+from observability_aware_control import utils
 from observability_aware_control.algorithms import (
-    STLOG,
-    CooperativeLocalizationOptions,
-    CooperativeOPCProblem,
-    forward_dynamics,
+    common,
+    cooperative_localization,
+    stlog,
 )
 from observability_aware_control.models import multi_quadrotor
-from observability_aware_control import utils
-
 
 # testing list: (X) = bad, (1/2) = not sure, (O) = good
 # nonlinear constraints (X)
@@ -44,7 +42,7 @@ def main():
     )
 
     # ---------------------------Setup the Optimizer----------------------------
-    stlog = STLOG(
+    stlog_ = stlog.STLOG(
         mdl,
         cfg["stlog"]["order"],
         cov=np.diag(
@@ -60,7 +58,7 @@ def main():
     window = cfg["opc"]["window_size"]
     u_lb = np.tile(np.array(cfg["optim"]["lb"]), (window, mdl.n_robots))
     u_ub = np.tile(np.array(cfg["optim"]["ub"]), (window, mdl.n_robots))
-    opts = CooperativeLocalizationOptions(
+    opts = cooperative_localization.CooperativeLocalizationOptions(
         window=window,
         id_leader=0,
         lb=u_lb,
@@ -72,7 +70,7 @@ def main():
         max_v2v_dist=cfg["opc"]["max_inter_vehicle_distance"],
     )
 
-    min_problem = CooperativeOPCProblem(stlog, opts)
+    min_problem = cooperative_localization.CooperativeLocalizingOPC(stlog_, opts)
     anim = utils.anim_utils.Animated3DTrajectory(mdl.n_robots)
 
     # -----------------------Generate initial trajectory------------------------
@@ -129,7 +127,7 @@ def main():
                 soln = min_problem.minimize(x[i - 1, :], u0, dt)
                 soln_u = np.concatenate([u_leader[i - 1, :], soln.x[0, mdl.robot_nu :]])
                 u[i, :] = soln_u
-                x[i, :] = forward_dynamics(
+                x[i, :] = common.forward_dynamics(
                     mdl.dynamics, x[i - 1, :], soln_u, dt, "euler"
                 )
 

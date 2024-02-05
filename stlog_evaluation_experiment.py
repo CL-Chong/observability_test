@@ -1,19 +1,19 @@
-import tomllib
-import tqdm
 import pickle
-from matplotlib import ticker
-import matplotlib.pyplot as plt
+import tomllib
+
 import jax
-import jax.numpy as jnp
 import jax.experimental.compilation_cache.compilation_cache as cc
-from observability_aware_control.models import multi_quadrotor
-from observability_aware_control.algorithms import (
-    STLOG,
-    CooperativeOPCProblem,
-    CooperativeLocalizationOptions,
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
+import tqdm
+from matplotlib import ticker
+
+from observability_aware_control.algorithms import cooperative_localization, stlog
+from observability_aware_control.algorithms.misc import (
+    simple_ekf,
+    trajectory_generation,
 )
-import observability_aware_control.algorithms.misc.trajectory_generation as planning
-import observability_aware_control.algorithms.misc.simple_ekf as ekf
+from observability_aware_control.models import multi_quadrotor
 
 
 def run_state_est(kf, x0, us, dt, cov_op_init):
@@ -51,10 +51,10 @@ def main():
         has_baro=False,
     )
 
-    ms = planning.MinimumSnap(
+    ms = trajectory_generation.MinimumSnap(
         cfg["initial_path"]["degree"],
         cfg["initial_path"]["derivative_weights"],
-        planning.MinimumSnapAlgorithm.CONSTRAINED,
+        trajectory_generation.MinimumSnapAlgorithm.CONSTRAINED,
     )
 
     p_refs = jnp.array(cfg["initial_path"]["position_reference"])
@@ -74,12 +74,12 @@ def main():
         with open("stlogdata.pkl", "rb") as fp:
             trials = pickle.load(fp)
     except FileNotFoundError:
-        stlog = STLOG(mdl, cfg["stlog"]["order"])
+        log = stlog.STLOG(mdl, cfg["stlog"]["order"])
 
         u_lb = jnp.tile(jnp.array(cfg["optim"]["lb"]), (window, mdl.n_robots))
         u_ub = jnp.tile(jnp.array(cfg["optim"]["ub"]), (window, mdl.n_robots))
         opts = cfg["optim"]["options"]
-        opts = CooperativeLocalizationOptions(
+        opts = cooperative_localization.CooperativeLocalizationOptions(
             window=window,
             id_leader=0,
             lb=u_lb,
@@ -90,7 +90,7 @@ def main():
             min_v2v_dist=-1,
             max_v2v_dist=-1,
         )
-        min_problem = CooperativeOPCProblem(stlog, opts)
+        min_problem = cooperative_localization.CooperativeLocalizingOPC(log, opts)
 
         obs_comps = jnp.array(cfg["opc"]["observed_components"])
         init_index = cfg["trials"]["init_timestep"]
@@ -103,7 +103,7 @@ def main():
         )
 
         i_stlog = (...,) + jnp.ix_(obs_comps, obs_comps)
-        kf = ekf.SimpleEKF(
+        kf = simple_ekf.SimpleEKF(
             lambda x, u, dt: x + dt * mdl.dynamics(x, u),
             mdl.observation,
             jnp.diag(jnp.tile(jnp.r_[0.1, jnp.full(3, 0.01)], mdl.n_robots)),
