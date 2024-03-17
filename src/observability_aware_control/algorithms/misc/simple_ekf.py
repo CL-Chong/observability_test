@@ -18,8 +18,8 @@ class SimpleEKF:
     ):
         self.fcn = fcn
         self.hfcn = hfcn
-        self._fjac = jax.jacfwd(fcn, argnums=(0, 1))
-        self._hjac = jax.jacfwd(hfcn)
+        self._fjac = jax.jacobian(fcn, argnums=(0, 1))
+        self._hjac = jax.jacobian(hfcn)
         self._in_cov = in_cov
         self._obs_cov = obs_cov
         self._resid_fcn = resid_fcn

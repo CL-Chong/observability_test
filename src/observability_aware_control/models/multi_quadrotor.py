@@ -1,32 +1,43 @@
-import functools
-
 import jax
 import jax.numpy as jnp
 
+from ..algorithms import stlog
 from . import model_base, quadrotor
 
+DIM_LEADER_POS_OBS = 3
+DIM_ATT_OBS = 4
+DIM_RNG_OBS = 1
+DIM_BRNG_OBS = 2
+DIM_ALT_OBS = 1
+DIM_VEL_OBS = 3
 
-class MultiQuadrotor(model_base.MRSBase):
-    DIM_LEADER_POS_OBS = 3
-    DIM_ATT_OBS = 4
-    DIM_BRNG_OBS = 2
-    DIM_ALT_OBS = 1
-    DIM_VEL_OBS = 3
 
-    def __init__(self, n_robots, mass, has_baro=False, has_odom=False):
+class MultiQuadrotor(model_base.MRSBase, stlog.STLOG):
+
+    def __init__(
+        self,
+        n_robots,
+        mass,
+        stlog_order,
+        has_baro=False,
+        has_odom=False,
+        stlog_cov=None,
+    ):
+        stlog.STLOG.__init__(self, stlog_order, stlog_cov)
+
         self._n_robots = n_robots
         self._mass = jnp.broadcast_to(mass, n_robots)
         self._has_baro = has_baro
         self._has_odom = has_odom
         self._ny = (
-            self.DIM_LEADER_POS_OBS
-            + self._n_robots * self.DIM_ATT_OBS
-            + (self._n_robots - 1) * self.DIM_BRNG_OBS
+            DIM_LEADER_POS_OBS
+            + self._n_robots * DIM_ATT_OBS
+            + (self._n_robots - 1) * DIM_BRNG_OBS
         )
         if has_baro:
-            self._ny += (self._n_robots - 1) * self.DIM_ALT_OBS
+            self._ny += (self._n_robots - 1) * DIM_ALT_OBS
         if has_odom:
-            self._ny += self._n_robots * self.DIM_VEL_OBS
+            self._ny += self._n_robots * DIM_VEL_OBS
 
     @property
     def robot_nx(self):
@@ -48,6 +59,14 @@ class MultiQuadrotor(model_base.MRSBase):
         return dynamics(x, u, self._mass).ravel()
 
     @property
+    def nx(self):
+        return self._n_robots * self.robot_nx
+
+    @property
+    def nu(self):
+        return self._n_robots * self.robot_nu
+
+    @property
     def ny(self):
         return self._ny
 
@@ -67,5 +86,3 @@ class MultiQuadrotor(model_base.MRSBase):
             vel = x[:, 7:10].ravel()
             res += (vel,)
         return jnp.concatenate(res)
-
-        # return jnp.concatenate([pos_ref, alt, h_att, h_bearings])

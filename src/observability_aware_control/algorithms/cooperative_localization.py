@@ -32,10 +32,10 @@ class CooperativeLocalizationOptions:
     optim_options: Optional[Dict[str, Any]] = dataclasses.field(default=None)
 
 
-class CooperativeLocalizingOPC:
-    def __init__(self, stlog_: stlog.STLOG, opts: CooperativeLocalizationOptions):
+class CooperativeLocalizingOPC(opc.OPCCost):
+    def __init__(self, model, opts: CooperativeLocalizationOptions):
         # Initialize the underlying cost function
-        self._opc = opc.OPCCost(stlog_, opts.obs_comps)
+        opc.OPCCost.__init__(self, model, opts.obs_comps)
 
         # Pick up some constants from the model inside the OPC
         self._nu = self.model.nu
@@ -78,16 +78,12 @@ class CooperativeLocalizingOPC:
                 lb=jnp.full(self._combs.shape[0] * opts.window, opts.min_v2v_dist**2),
                 ub=jnp.full(self._combs.shape[0] * opts.window, opts.max_v2v_dist**2),
             )
-            cjac = jax.jacfwd(self.constraint)
+            cjac = jax.jacobian(self.constraint)
             self.problem.constraints.jac = lambda u: cjac(u, *self.problem.args)  # type: ignore
         else:
             warnings.warn(
                 "Invalid bounds, vehicle-to-vehicle ranges will not be constrained"
             )
-
-    @property
-    def model(self):
-        return self._opc.model
 
     def combine_input(self, u, u_const):
         u = u.reshape(-1, self._n_mut)
@@ -96,9 +92,9 @@ class CooperativeLocalizingOPC:
         )
 
     @functools.partial(jax.jit, static_argnames=("self", "return_stlog", "return_traj"))
-    def opc(self, u, x, dt, return_stlog=False, return_traj=False):
-        dt = jnp.broadcast_to(dt, u.shape[0])
-        return self._opc(u, x, dt, return_stlog, return_traj)
+    def opc(self, us, x, dt, return_stlog=False, return_traj=False):
+        dt = jnp.broadcast_to(dt, us.shape[0])
+        return super().opc(us, x, dt, return_stlog, return_traj)
 
     @functools.partial(jax.jit, static_argnames=("self",))
     def objective(self, u, u_const, x, dt):

@@ -5,12 +5,12 @@ import jax.numpy as jnp
 import jax.numpy.linalg as la
 from jax.typing import ArrayLike
 
-from . import common, stlog
+from . import common
 
 
 class OPCCost:
-    def __init__(self, stlog_: stlog.STLOG, obs_comps: Optional[ArrayLike] = None):
-        self._stlog = stlog_
+    def __init__(self, model, obs_comps: Optional[ArrayLike] = None):
+        self._mdl = model
         if obs_comps is not None:
             obs_comps = jnp.asarray(obs_comps, dtype=jnp.int32)
             self._i_stlog = jnp.ix_(obs_comps, obs_comps)
@@ -19,9 +19,9 @@ class OPCCost:
 
     @property
     def model(self):
-        return self._stlog.model
+        return self._mdl
 
-    def __call__(self, us, x, dt, return_stlog=False, return_traj=False):
+    def opc(self, us, x, dt, return_stlog=False, return_traj=False):
         # Real-time integration: Predict the system trajectory over the following stages
         xs = common.forward_dynamics(self.model.dynamics, x, us, dt)
 
@@ -29,7 +29,7 @@ class OPCCost:
         # to be sliced
         @jax.vmap
         def eval_stlog(x, u, dt):
-            return self._stlog(x, u, dt)[self._i_stlog]
+            return self.model.stlog(x, u, dt)[self._i_stlog]
 
         # STLOGs are cached to a variable that may be optionally returned
         stlog_ = eval_stlog(xs, us, dt)

@@ -8,11 +8,7 @@ import numpy as np
 import tqdm
 
 from observability_aware_control import utils
-from observability_aware_control.algorithms import (
-    common,
-    cooperative_localization,
-    stlog,
-)
+from observability_aware_control.algorithms import common, cooperative_localization
 from observability_aware_control.models import multi_quadrotor
 
 # testing list: (X) = bad, (1/2) = not sure, (O) = good
@@ -23,7 +19,7 @@ from observability_aware_control.models import multi_quadrotor
 # adaptive dt_stlog (O - continue to refine)
 # psd mod (O - less transients than base, but less turning too)
 
-cc.initialize_cache("./.cache")
+cc.set_cache_dir("./.cache")
 
 jax.config.update("jax_enable_x64", True)
 
@@ -37,24 +33,23 @@ def main():
     with open("./config/quadrotor_control_experiment.toml", "rb") as fp:
         cfg = tomllib.load(fp)
 
+    n_robots = cfg["model"]["n_robots"]
+    cov = np.diag(
+        np.r_[
+            np.full(multi_quadrotor.DIM_LEADER_POS_OBS, 1e-1),
+            np.full(multi_quadrotor.DIM_ATT_OBS * n_robots, 1e-2),
+            np.full(multi_quadrotor.DIM_BRNG_OBS * (n_robots - 1), 1e-2),
+            np.full(multi_quadrotor.DIM_VEL_OBS * n_robots, 1e-2),
+        ]
+    )
+
     mdl = multi_quadrotor.MultiQuadrotor(
-        cfg["model"]["n_robots"], cfg["model"]["robot_mass"], has_odom=True
+        n_robots,
+        cfg["model"]["robot_mass"],
+        stlog_order=cfg["stlog"]["order"],
+        has_odom=True,
+        stlog_cov=cov,
     )
-
-    # ---------------------------Setup the Optimizer----------------------------
-    stlog_ = stlog.STLOG(
-        mdl,
-        cfg["stlog"]["order"],
-        cov=np.diag(
-            np.r_[
-                np.full(mdl.DIM_LEADER_POS_OBS, 1e-1),
-                np.full(mdl.DIM_ATT_OBS * mdl.n_robots, 1e-2),
-                np.full(mdl.DIM_BRNG_OBS * (mdl.n_robots - 1), 1e-2),
-                np.full(mdl.DIM_VEL_OBS * mdl.n_robots, 1e-2),
-            ]
-        ),
-    )
-
     window = cfg["opc"]["window_size"]
     u_lb = np.tile(np.array(cfg["optim"]["lb"]), (window, mdl.n_robots))
     u_ub = np.tile(np.array(cfg["optim"]["ub"]), (window, mdl.n_robots))
@@ -70,7 +65,7 @@ def main():
         max_v2v_dist=cfg["opc"]["max_inter_vehicle_distance"],
     )
 
-    min_problem = cooperative_localization.CooperativeLocalizingOPC(stlog_, opts)
+    min_problem = cooperative_localization.CooperativeLocalizingOPC(mdl, opts)
     anim = utils.anim_utils.Animated3DTrajectory(mdl.n_robots)
 
     # -----------------------Generate initial trajectory------------------------

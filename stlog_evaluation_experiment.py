@@ -37,7 +37,7 @@ def evaluate_trajectory(min_problem, kf, us, x0, dt, i_stlog):
     )
 
 
-cc.initialize_cache("./.cache")
+cc.set_cache_dir("./.cache")
 
 
 def main():
@@ -49,6 +49,7 @@ def main():
         cfg["model"]["robot_mass"],
         has_odom=True,
         has_baro=False,
+        stlog_order=1,
     )
 
     ms = trajectory_generation.MinimumSnap(
@@ -74,7 +75,6 @@ def main():
         with open("stlogdata.pkl", "rb") as fp:
             trials = pickle.load(fp)
     except FileNotFoundError:
-        log = stlog.STLOG(mdl, cfg["stlog"]["order"])
 
         u_lb = jnp.tile(jnp.array(cfg["optim"]["lb"]), (window, mdl.n_robots))
         u_ub = jnp.tile(jnp.array(cfg["optim"]["ub"]), (window, mdl.n_robots))
@@ -90,7 +90,7 @@ def main():
             min_v2v_dist=-1,
             max_v2v_dist=-1,
         )
-        min_problem = cooperative_localization.CooperativeLocalizingOPC(log, opts)
+        min_problem = cooperative_localization.CooperativeLocalizingOPC(mdl, opts)
 
         obs_comps = jnp.array(cfg["opc"]["observed_components"])
         init_index = cfg["trials"]["init_timestep"]
@@ -109,10 +109,10 @@ def main():
             jnp.diag(jnp.tile(jnp.r_[0.1, jnp.full(3, 0.01)], mdl.n_robots)),
             jnp.diag(
                 jnp.r_[
-                    jnp.full(mdl.DIM_LEADER_POS_OBS, 1e-1),
-                    jnp.full(mdl.DIM_ATT_OBS * mdl.n_robots, 1e-3),
-                    jnp.full(mdl.DIM_BRNG_OBS * (mdl.n_robots - 1), 1e-3),
-                    jnp.full(mdl.DIM_VEL_OBS * mdl.n_robots, 1e-3),
+                    jnp.full(multi_quadrotor.DIM_LEADER_POS_OBS, 1e-1),
+                    jnp.full(multi_quadrotor.DIM_ATT_OBS * mdl.n_robots, 1e-3),
+                    jnp.full(multi_quadrotor.DIM_BRNG_OBS * (mdl.n_robots - 1), 1e-3),
+                    jnp.full(multi_quadrotor.DIM_VEL_OBS * mdl.n_robots, 1e-3),
                 ]
             ),
         )

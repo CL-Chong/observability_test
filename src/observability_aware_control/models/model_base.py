@@ -5,12 +5,10 @@ class ModelBase(abc.ABC):
     """Base class (Interface) for all nonlinear dynamical system modesl"""
 
     @abc.abstractmethod
-    def dynamics(self, x, u, *args):
-        ...
+    def dynamics(self, x, u, *args): ...
 
     @abc.abstractmethod
-    def observation(self, x, *args):
-        ...
+    def observation(self, x, *args): ...
 
     @property
     @abc.abstractmethod
@@ -32,7 +30,7 @@ class MRSBase(ModelBase):
     @property
     @abc.abstractmethod
     def robot_nx(self):
-        raise NotImplementedError("This is a base class")
+        return -1
 
     @property
     def nx(self):
@@ -41,7 +39,7 @@ class MRSBase(ModelBase):
     @property
     @abc.abstractmethod
     def robot_nu(self):
-        raise NotImplementedError("This is a base class")
+        return -1
 
     @property
     def nu(self):
@@ -50,7 +48,7 @@ class MRSBase(ModelBase):
     @property
     @abc.abstractmethod
     def n_robots(self):
-        raise NotImplementedError("This is a base class")
+        return -1
 
     def reshape_x_vec(self, x_vec):
         return x_vec.reshape(self.n_robots, self.robot_nx)
