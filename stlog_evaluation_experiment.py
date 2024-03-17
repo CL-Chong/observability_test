@@ -143,6 +143,32 @@ def main():
     rand_stddev = jnp.stack([it["stddev"] for it in trials["rand"]])
 
     time = jnp.r_[0:window] * dt
+    fig, ax = plt.subplots(subplot_kw={"projection": "3d"})
+
+    ax.set_xlim(-50, 50)
+    ax.set_ylim(-50, 50)
+    ax.set_zlim(-50, 50)
+    for it in trials["rand"]:
+        xs_all = it["xs"].reshape(40, 3, 10)
+        for idx in range(3):
+            xs = xs_all[:, idx, :]
+            ax.plot(xs[:, 0], xs[:, 1], xs[:, 2], alpha=0.1, color="k")
+
+    xs_all = trials["init"]["xs"].reshape(40, 3, 10)
+    for idx in range(3):
+        xs = xs_all[:, idx, :]
+        ax.plot(xs[:, 0], xs[:, 1], xs[:, 2])
+
+    xs_all = trials["opt"]["xs"].reshape(40, 3, 10)
+    for idx in range(3):
+        xs = xs_all[:, idx, :]
+        ax.plot(xs[:, 0], xs[:, 1], xs[:, 2], linewidth=2)
+
+    ax.set_xlabel("X (m)")
+    ax.set_ylabel("Y (m)")
+    ax.set_zlabel("Z (m)")
+    fig.tight_layout()
+    fig.savefig("data/stlog_evaluation_trajectories.png")
     for idv in range(2):
         fig, axs = plt.subplots(3)
         for idx, it in enumerate("xyz"):
@@ -185,7 +211,7 @@ def main():
             ax.yaxis.set_major_formatter(ticker.StrMethodFormatter("{x:,.2f}"))
             ax.set_ylabel(rf"$\sigma^2(\mathbf{{p}}_{it})$ (m)", fontsize=15)
         fig.supxlabel("Time (s)", fontsize=15)
-        fig.savefig(f"data/stlog_evaluation_results_v{idv}.png")
+        fig.savefig(f"data/stlog_evaluation_results_v{idv}.png", bbox_inches="tight")
         fig.tight_layout()
     plt.show()
 

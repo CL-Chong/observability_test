@@ -158,6 +158,7 @@ def main():
                 plt.pause(1e-3)
             success = True
     finally:  # Save the data at all costs
+        anim.anim.save(cfg["session"].get("video_name", "optimization.mp4"))
         soln_stats = {k: np.asarray(v) for k, v in soln_stats.items()}
         save_name = str(cfg["session"].get("save_name", "optimization_results.npz"))
         if not success:

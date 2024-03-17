@@ -27,6 +27,14 @@ class Animated3DTrajectory:
                 self._fig, self.animate, save_count=100
             )
 
+    @property
+    def fig(self):
+        return self._fig
+
+    @property
+    def anim(self):
+        return self._anim
+
     def set_labels(self):
         self._ax[0].set_xlabel("X Position (m)")
         self._ax[0].set_ylabel("Y Position (m)")
