@@ -51,3 +51,14 @@ def observation(x, pos_ref):
     azimuth = jnp.arctan2(p_diff[1], p_diff[0])
     elevation = jnp.arctan2(p_diff[2], jnp.hypot(p_diff[0], p_diff[1]))
     return jnp.array([azimuth, elevation])
+
+
+class Quadrotor:
+    def __init__(self, mass):
+        self._mass = mass
+
+    def dynamics(self, x, u):
+        return dynamics(x, u, self._mass)
+
+    def observation(self, x, pos_ref):
+        return observation(x, pos_ref)

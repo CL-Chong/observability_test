@@ -10,6 +10,7 @@ import tqdm
 from observability_aware_control import utils
 from observability_aware_control.algorithms import common, cooperative_localization
 from observability_aware_control.models import multi_quadrotor
+from observability_aware_control.utils.utils import generate_leader_trajectory
 
 # testing list: (X) = bad, (1/2) = not sure, (O) = good
 # nonlinear constraints (X)
@@ -36,7 +37,7 @@ def main():
     n_robots = cfg["model"]["n_robots"]
     cov = np.diag(
         np.r_[
-            np.full(multi_quadrotor.DIM_LEADER_POS_OBS, 1e-1),
+            np.full(multi_quadrotor.DIM_LEADER_POS_OBS, 1e-2),
             np.full(multi_quadrotor.DIM_ATT_OBS * n_robots, 1e-2),
             np.full(multi_quadrotor.DIM_BRNG_OBS * (n_robots - 1), 1e-2),
             np.full(multi_quadrotor.DIM_VEL_OBS * n_robots, 1e-2),
@@ -69,10 +70,17 @@ def main():
     anim = utils.anim_utils.Animated3DTrajectory(mdl.n_robots)
 
     # -----------------------Generate initial trajectory------------------------
-    trajectory_data = np.load(cfg["session"]["leader_trajectory"])
-    u_leader = trajectory_data["inputs"]
-    t_sample = trajectory_data["time"]
-    dt = np.diff(t_sample)[0]
+    leader_trajectory = cfg["session"]["leader_trajectory"]
+    dt = leader_trajectory["sample_period"]
+    timestamps = leader_trajectory["timestamps"]
+    t_sample = np.arange(0, timestamps[-1], dt)
+    waypoints = np.asarray(leader_trajectory["waypoints"])
+    init_positions = np.asarray(cfg["session"]["initial_positions"])
+    quadrotor_mass = cfg["model"]["robot_mass"]
+
+    x_leader, u_leader = generate_leader_trajectory(
+        timestamps, waypoints, t_sample, quadrotor_mass, dt
+    )
 
     # -----------------Setup initial conditions and data saving-----------------
     sim_steps = cfg["sim"]["steps"]
@@ -80,13 +88,13 @@ def main():
     x = np.zeros((sim_steps, mdl.nx))
     u = np.zeros((sim_steps, mdl.nu))
 
-    n_ic = len(cfg["session"]["initial_positions"])
+    n_ic = len(init_positions)
     if n_ic != mdl.n_robots:
         print(f"Incorrect number of initial positions {n_ic} for {mdl.n_robots} robots")
         sys.exit(1)
 
     x[0, :] = np.concatenate(
-        [np.r_[it, q_eqm, v_eqm] for it in cfg["session"]["initial_positions"]]
+        [x_leader[0, :]] + [np.r_[it, q_eqm, v_eqm] for it in init_positions[1:]]
     )
 
     input_steps, nu = u_leader.shape
@@ -116,11 +124,11 @@ def main():
     try:
         with plt.ion():
             for i in tqdm.trange(1, sim_steps):
-                u_leader_0 = u_leader[i - 1 : i - 1 + window, :]
+                u_leader_0 = u_leader[i : i + window, :]
 
                 u0 = np.hstack([u_leader_0, np.tile(u_eqm, (window, 2))])
                 soln = min_problem.minimize(x[i - 1, :], u0, dt)
-                soln_u = np.concatenate([u_leader[i - 1, :], soln.x[0, mdl.robot_nu :]])
+                soln_u = np.concatenate([u_leader[i, :], soln.x[0, mdl.robot_nu :]])
                 u[i, :] = soln_u
                 x[i, :] = common.forward_dynamics(
                     mdl.dynamics, x[i - 1, :], soln_u, dt, "euler"

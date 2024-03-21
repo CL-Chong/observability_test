@@ -16,8 +16,24 @@ initial_positions = [
         10.0,
     ],
 ]
-leader_trajectory = "./data/lemniscate_trajectory_data.npz"
-save_name = "./data/lemniscate_optimization_results_o2_log_v2.npz"
+
+save_name = "./data/straight_optimization_results_o2_log_v2.npz"
+video_name = "./data/media/straight_optimization_results.mp4"
+
+[session.leader_trajectory]
+waypoints = [
+    [0.0, 0.0, 10.0],    #
+    [10.0, 0.0, 10.0],
+    [30.0, 10.0, 10.0],
+    [50.0, 0.0, 10.0],
+    [70.0, -10.0, 10.0],
+    [90.0, 0.0, 10.0],
+    [70.0, 10.0, 10.0],
+    [50.0, 0.0, 10.0],
+    [30.0, -10.0, 10.0],
+]
+timestamps = [0, 50, 100, 150, 200, 250, 300, 350, 400]
+sample_period = 0.2
 
 [model]
 n_robots = 3
