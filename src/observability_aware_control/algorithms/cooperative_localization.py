@@ -82,7 +82,8 @@ class CooperativeLocalizingOPC(opc.OPCCost):
             self.problem.constraints.jac = lambda u: cjac(u, *self.problem.args)  # type: ignore
         else:
             warnings.warn(
-                "Invalid bounds, vehicle-to-vehicle ranges will not be constrained"
+                "Invalid bounds, vehicle-to-vehicle ranges will not be constrained",
+                stacklevel=2,
             )
 
     def combine_input(self, u, u_const):
@@ -106,7 +107,9 @@ class CooperativeLocalizingOPC(opc.OPCCost):
         us = self.combine_input(u, u_const)
         dt = jnp.broadcast_to(dt, us.shape[0])
         xs = common.forward_dynamics(self.model.dynamics, x, us, dt)
-        pos = xs.reshape(xs.shape[0], -1, 10)[:, :, 0:3]
+        pos = xs.reshape(xs.shape[0], -1, self.model.robot_nx)[
+            :, :, : self.model.dims["position"]
+        ]
         dp = jnp.diff(pos[:, self._combs, :], axis=2)
         dp_nrm = (dp**2).sum(axis=-1).ravel()
         return dp_nrm

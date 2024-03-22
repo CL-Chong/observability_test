@@ -3,21 +3,46 @@ import functools
 import jax
 import jax.numpy as jnp
 
+from ..algorithms import stlog
 from . import model_base, robot
 
+DIM_LEADER_POS_OBS = 2
+DIM_HDG_OBS = 1
+DIM_RNG_OBS = 1
+DIM_BRNG_OBS = 1
 
-class MultiRobot(model_base.ModelBase):
+
+class MultiRobot(model_base.MRSBase, stlog.STLOG):
     """A system of multiple robots"""
 
     NX = robot.NX  # (innermost) state dimension
     NU = robot.NU  # (innermost) input dimension
 
-    def __init__(self, n_robots):
+    def __init__(self, n_robots, stlog_order, *, stlog_cov=None):
+        stlog.STLOG.__init__(self, stlog_order, stlog_cov)
         self._n_robots = n_robots
+        self._ny = (
+            DIM_LEADER_POS_OBS
+            + self._n_robots * DIM_HDG_OBS
+            + (self._n_robots - 1) * DIM_BRNG_OBS
+        )
+        self._dims = {"position": 2, "heading": 1}
 
-    @functools.partial(jax.vmap, in_axes=(None, 0, None))
-    def observation(self, x, pos_ref):
-        return robot.observation(x, pos_ref)
+    @property
+    def dims(self):
+        return self._dims
+
+    @property
+    def robot_nx(self):
+        return robot.NX
+
+    @property
+    def robot_nu(self):
+        return robot.NU
+
+    @property
+    def n_robots(self):
+        return self._n_robots
 
     @property
     def nx(self):
@@ -28,50 +53,24 @@ class MultiRobot(model_base.ModelBase):
         return self._n_robots * robot.NU
 
     @property
-    def n_robots(self):
-        return self._n_robots
+    def ny(self):
+        return self._ny
 
     @functools.partial(jax.jit, static_argnames=("self",))
     def dynamics(self, x, u):
-        x = x.reshape(self._n_robots, robot.NX)
-        u = u.reshape(self._n_robots, robot.NU)
+        x = self.reshape_x_vec(x)
+        u = self.reshape_u_vec(u)
 
-        dynamics = jax.vmap(robot.dynamics, out_axes=0)
+        dynamics = jax.vmap(robot.dynamics)
         return dynamics(x, u).ravel()
 
-
-class ReferenceSensingRobots(MultiRobot):
-    @property
-    def ny(self):
-        return self._n_robots + self._n_robots * 2
-
-    @functools.partial(jax.jit, static_argnames=("self",))
-    @functools.partial(jax.vmap, in_axes=(None, 0, 0))
-    def observation(self, x, pos_ref):
-        x = x.reshape(self._n_robots, robot.NX)
-        h_headings = x[:, 3].ravel()
-        h_bearings = super().observation(x, pos_ref)
-
-        return jnp.concatenate([h_headings, h_bearings])
-
-
-class LeaderFollowerRobots(MultiRobot):
-    @property
-    def ny(self):
-        return self._n_robots + (self._n_robots - 1) * 2
-
     def observation(self, x):
-        if x.ndim > 1:
-            return jax.vmap(self._observation, in_axes=(None, 0))(x)
-        else:
-            return self._observation(x)
+        x = self.reshape_x_vec(x)
+        pos_ref = x[0, 0:2]
+        h_headings = x[:, 2]
 
-    @functools.partial(jax.jit, static_argnames=("self",))
-    def _observation(self, x):
-        x = x.reshape((self._n_robots, robot.NX))
-        h_headings = x[:, 3].ravel()
-        pos_ref = x[0, 0:3]
+        obs = jax.vmap(robot.observation, in_axes=(0, None))
 
-        h_bearings = super().observation(x[1:, :], pos_ref).ravel()
+        h_bearings = obs(x[1:, :], pos_ref).ravel()
 
         return jnp.concatenate([pos_ref, h_headings, h_bearings])

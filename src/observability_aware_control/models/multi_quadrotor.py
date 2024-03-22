@@ -55,7 +55,7 @@ class MultiQuadrotor(model_base.MRSBase, stlog.STLOG):
         x = self.reshape_x_vec(x)
         u = self.reshape_u_vec(u)
 
-        dynamics = jax.vmap(quadrotor.dynamics, out_axes=0)
+        dynamics = jax.vmap(quadrotor.dynamics)
         return dynamics(x, u, self._mass).ravel()
 
     @property
