@@ -7,12 +7,12 @@ from . import model_base
 
 NX = 3
 NU = 2
-NY = 2
+NY = 1
 
 
 @jax.jit
 def dynamics(x, u):
-    psi = x[3]
+    psi = x[2]
     v = u[0]
     w = u[1]
 
@@ -24,7 +24,7 @@ def dynamics(x, u):
 
 @jax.jit
 def observation(x, pos_ref):
-    psi = x[3]
+    psi = x[2]
     c = jnp.cos(psi)
     s = jnp.sin(psi)
 
