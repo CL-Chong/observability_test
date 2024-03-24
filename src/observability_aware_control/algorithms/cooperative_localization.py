@@ -23,6 +23,7 @@ jitmember = functools.partial(jax.jit, static_argnames=("self",))
 class CooperativeLocalizationOptions:
     window: int = dataclasses.field(default=1)
     obs_comps: Optional[ArrayLike] = None
+    dt_stlog: Optional[float] = None
     id_leader: int = dataclasses.field(default=0)
     ub: ArrayLike = dataclasses.field(default_factory=lambda: -jnp.array(jnp.inf))
     lb: ArrayLike = dataclasses.field(default_factory=lambda: jnp.array(jnp.inf))
@@ -35,7 +36,7 @@ class CooperativeLocalizationOptions:
 class CooperativeLocalizingOPC(opc.OPCCost):
     def __init__(self, model, opts: CooperativeLocalizationOptions):
         # Initialize the underlying cost function
-        opc.OPCCost.__init__(self, model, opts.obs_comps)
+        opc.OPCCost.__init__(self, model, opts.dt_stlog, opts.obs_comps)
 
         # Pick up some constants from the model inside the OPC
         self._nu = self.model.nu
@@ -108,7 +109,7 @@ class CooperativeLocalizingOPC(opc.OPCCost):
         dt = jnp.broadcast_to(dt, us.shape[0])
         xs = common.forward_dynamics(self.model.dynamics, x, us, dt)
         pos = xs.reshape(xs.shape[0], -1, self.model.robot_nx)[
-            :, :, : self.model.dims["position"]
+            :, :, : self.model.state_dims["position"]
         ]
         dp = jnp.diff(pos[:, self._combs, :], axis=2)
         dp_nrm = (dp**2).sum(axis=-1).ravel()

@@ -38,6 +38,11 @@ class MultiQuadrotor(model_base.MRSBase, stlog.STLOG):
             self._ny += (self._n_robots - 1) * DIM_ALT_OBS
         if has_odom:
             self._ny += self._n_robots * DIM_VEL_OBS
+        self._state_dims = {"position": 3, "attitude": 4, "velocity": 3}
+
+    @property
+    def state_dims(self):
+        return self._state_dims
 
     @property
     def robot_nx(self):

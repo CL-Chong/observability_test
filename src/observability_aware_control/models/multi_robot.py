@@ -1,4 +1,5 @@
 import functools
+import math
 
 import jax
 import jax.numpy as jnp
@@ -21,16 +22,18 @@ class MultiRobot(model_base.MRSBase, stlog.STLOG):
     def __init__(self, n_robots, stlog_order, *, stlog_cov=None):
         stlog.STLOG.__init__(self, stlog_order, stlog_cov)
         self._n_robots = n_robots
-        self._ny = (
-            DIM_LEADER_POS_OBS
-            + self._n_robots * DIM_HDG_OBS
-            + (self._n_robots - 1) * DIM_BRNG_OBS
-        )
-        self._dims = {"position": 2, "heading": 1}
+
+        self._state_dims = {"position": 2, "heading": 1}
+        self._observation_dims = {
+            "leader_position": 2,
+            "heading": self._n_robots,
+            "bearing": math.comb(self._n_robots, 2),
+        }
+        self._ny = sum(self._observation_dims.values())
 
     @property
-    def dims(self):
-        return self._dims
+    def state_dims(self):
+        return self._state_dims
 
     @property
     def robot_nx(self):

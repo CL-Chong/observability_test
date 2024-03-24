@@ -9,7 +9,7 @@ from . import common
 
 
 class OPCCost:
-    def __init__(self, model, obs_comps: Optional[ArrayLike] = None):
+    def __init__(self, model, dt_stlog, obs_comps: Optional[ArrayLike] = None):
         self._mdl = model
         if obs_comps is not None:
             obs_comps = jnp.asarray(obs_comps, dtype=jnp.int32)
@@ -17,11 +17,14 @@ class OPCCost:
         else:
             self._i_stlog = ...
 
+        self._dt_stlog = dt_stlog
+
     @property
     def model(self):
         return self._mdl
 
     def opc(self, us, x, dt, return_stlog=False, return_traj=False):
+        dt, self._dt_stlog = jnp.broadcast_arrays(dt, self._dt_stlog)
         # Real-time integration: Predict the system trajectory over the following stages
         xs = common.forward_dynamics(self.model.dynamics, x, us, dt)
 
@@ -32,7 +35,7 @@ class OPCCost:
             return self.model.stlog(x, u, dt)[self._i_stlog]
 
         # STLOGs are cached to a variable that may be optionally returned
-        stlog_ = eval_stlog(xs, us, dt)
+        stlog_ = eval_stlog(xs, us, self._dt_stlog)
 
         # Evaluate (minimum) singular values for each STLOG in the stack
         # Sum them up, then apply inverse-of-logarithm scaling
