@@ -19,7 +19,15 @@ class MultiRobot(model_base.MRSBase, stlog.STLOG):
     NX = robot.NX  # (innermost) state dimension
     NU = robot.NU  # (innermost) input dimension
 
-    def __init__(self, n_robots, stlog_order, *, stlog_cov=None):
+    def __init__(
+        self,
+        n_robots,
+        stlog_order,
+        *,
+        stlog_cov=None,
+        interrobot_observation_kind="bearings",
+    ):
+        model_base.MRSBase.__init__(self, interrobot_observation_kind)
         stlog.STLOG.__init__(self, stlog_order, stlog_cov)
         self._n_robots = n_robots
 
@@ -72,7 +80,7 @@ class MultiRobot(model_base.MRSBase, stlog.STLOG):
         pos_ref = x[0, 0:2]
         h_headings = x[:, 2]
 
-        obs = jax.vmap(robot.observation, in_axes=(0, None))
+        obs = jax.vmap(self.interrobot_observation, in_axes=(0, None))
 
         h_bearings = obs(x[1:, :], pos_ref).ravel()
 

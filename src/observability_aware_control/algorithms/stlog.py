@@ -32,7 +32,6 @@ class STLOG(object):
     observation: Callable
     dynamics: Callable
     nx: int
-    ny: int
 
     def __init__(self, order, cov=None):
 

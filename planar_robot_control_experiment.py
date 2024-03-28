@@ -44,6 +44,7 @@ def main():
         n_robots,
         stlog_order=cfg["stlog"]["order"],
         stlog_cov=cov,
+        interrobot_observation_kind=cfg["model"]["interrobot_observation_kind"],
     )
     window = cfg["opc"]["window_size"]
     u_lb = np.tile(np.array(cfg["optim"]["lb"]), (window, mdl.n_robots))

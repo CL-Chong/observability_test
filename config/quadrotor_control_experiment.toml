@@ -38,9 +38,11 @@ sample_period = 0.2
 [model]
 n_robots = 3
 robot_mass = 1.0
+interrobot_observation_kind = "distance"
 
 [stlog]
 order = 2
+dt = 0.2
 
 [opc]
 window_size = 20

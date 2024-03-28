@@ -1,5 +1,7 @@
 import abc
 
+from observability_aware_control.models import sensors
+
 
 class ModelBase(abc.ABC):
     """Base class (Interface) for all nonlinear dynamical system modesl"""
@@ -20,13 +22,22 @@ class ModelBase(abc.ABC):
     def nu(self):
         return -1
 
-    @property
-    @abc.abstractmethod
-    def ny(self):
-        return -1
-
 
 class MRSBase(ModelBase):
+
+    def __init__(self, interrobot_observation_kind):
+        self._interrobot_observation_dim = sensors.DIM_INTERROBOT_OBSERVATION[
+            interrobot_observation_kind
+        ]
+        self._intrinsics = getattr(sensors, interrobot_observation_kind)
+
+    def interrobot_observation(self, tracker_state, target_position):
+        return self._intrinsics(sensors.extrinsics(tracker_state, target_position))
+
+    @property
+    def interrobot_observation_dim(self):
+        return self._interrobot_observation_dim
+
     @property
     @abc.abstractmethod
     def robot_nx(self):

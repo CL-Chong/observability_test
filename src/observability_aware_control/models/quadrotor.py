@@ -3,28 +3,10 @@ import functools
 import jax
 import jax.numpy as jnp
 
+from .rotation import quaternion_product, quaternion_rotate_point
+
 NX = 10
 NU = 4
-
-
-@jax.jit
-def quaternion_product(lhs, rhs):
-    return jnp.array(
-        [
-            lhs[3] * rhs[0] + lhs[0] * rhs[3] + lhs[1] * rhs[2] - lhs[2] * rhs[1],
-            lhs[3] * rhs[1] + lhs[1] * rhs[3] + lhs[2] * rhs[0] - lhs[0] * rhs[2],
-            lhs[3] * rhs[2] + lhs[2] * rhs[3] + lhs[0] * rhs[1] - lhs[1] * rhs[0],
-            lhs[3] * rhs[3] - lhs[0] * rhs[0] - lhs[1] * rhs[1] - lhs[2] * rhs[2],
-        ]
-    )
-
-
-@functools.partial(jax.jit, static_argnums=(2,))
-def quaternion_rotate_point(quaternion, point, invert_rotation=False):
-    vec = -quaternion[0:3] if invert_rotation else quaternion[0:3]
-    uv = jnp.cross(vec, point)
-    uv += uv
-    return point + quaternion[3] * uv + jnp.cross(vec, uv)
 
 
 @functools.partial(jax.jit, donate_argnums=(0,))
@@ -43,22 +25,9 @@ def dynamics(x, u, mass):
     return dx
 
 
-@jax.jit
-def observation(x, pos_ref):
-    p = x[0:3]
-    q = x[3:7]
-    p_diff = quaternion_rotate_point(q, pos_ref - p, True)
-    azimuth = jnp.arctan2(p_diff[1], p_diff[0])
-    elevation = jnp.arctan2(p_diff[2], jnp.hypot(p_diff[0], p_diff[1]))
-    return jnp.array([azimuth, elevation])
-
-
 class Quadrotor:
     def __init__(self, mass):
         self._mass = mass
 
     def dynamics(self, x, u):
         return dynamics(x, u, self._mass)
-
-    def observation(self, x, pos_ref):
-        return observation(x, pos_ref)

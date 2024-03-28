@@ -35,11 +35,13 @@ def main():
         cfg = tomllib.load(fp)
 
     n_robots = cfg["model"]["n_robots"]
+    interrobot_observation_kind = cfg["model"]["interrobot_observation_kind"]
+    interrobot_observation_dim = 2 if interrobot_observation_kind == "bearings" else 1
     cov = np.diag(
         np.r_[
             np.full(multi_quadrotor.DIM_LEADER_POS_OBS, 1e-2),
             np.full(multi_quadrotor.DIM_ATT_OBS * n_robots, 1e-2),
-            np.full(multi_quadrotor.DIM_BRNG_OBS * (n_robots - 1), 1e-2),
+            np.full(interrobot_observation_dim * (n_robots - 1), 1e-2),
             np.full(multi_quadrotor.DIM_VEL_OBS * n_robots, 1e-2),
         ]
     )
@@ -50,6 +52,7 @@ def main():
         stlog_order=cfg["stlog"]["order"],
         has_odom=True,
         stlog_cov=cov,
+        interrobot_observation_kind=interrobot_observation_kind,
     )
     window = cfg["opc"]["window_size"]
     u_lb = np.tile(np.array(cfg["optim"]["lb"]), (window, mdl.n_robots))

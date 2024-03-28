@@ -7,6 +7,7 @@ video_name = "./data/media/straight_optimization_results.mp4"
 [model]
 n_robots = 3
 robot_mass = 1.0
+interrobot_observation_kind = "distance"
 
 [stlog]
 order = 3
