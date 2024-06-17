@@ -130,7 +130,7 @@ def main():
             for i in tqdm.trange(1, sim_steps):
                 u_leader_0 = u_leader[i : i + window, :]
 
-                u0 = np.hstack([u_leader_0, np.tile(u_eqm, (window, 2))])
+                u0 = np.hstack([u_leader_0, np.tile(u_eqm, (window, mdl.n_robots - 1))])
                 soln = min_problem.minimize(x[i - 1, :], u0, dt)
                 soln_u = np.concatenate([u_leader[i, :], soln.x[0, mdl.robot_nu :]])
                 u[i, :] = soln_u
