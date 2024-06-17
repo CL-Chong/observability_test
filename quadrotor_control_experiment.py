@@ -87,7 +87,7 @@ def main():
     )
 
     # -----------------Setup initial conditions and data saving-----------------
-    sim_steps = cfg["sim"]["steps"]
+    sim_steps = int(np.floor((timestamps[-1] - timestamps[0]) / dt)) + 1
     time = t_sample[0:sim_steps]
     x = np.zeros((sim_steps, mdl.nx))
     u = np.zeros((sim_steps, mdl.nu))
@@ -113,6 +113,7 @@ def main():
 
     u0 = np.r_[u_leader[0, :], np.tile(u_eqm, mdl.n_robots - 1)]
     u[0, :] = u0
+    dx = np.zeros_like(x)
 
     soln_stats = {
         "status": [],
@@ -134,8 +135,13 @@ def main():
                 soln = min_problem.minimize(x[i - 1, :], u0, dt)
                 soln_u = np.concatenate([u_leader[i, :], soln.x[0, mdl.robot_nu :]])
                 u[i, :] = soln_u
-                x[i, :] = common.forward_dynamics(
-                    mdl.dynamics, x[i - 1, :], soln_u, dt, "euler"
+                x[i, :], dx[i, :] = common.forward_dynamics(
+                    mdl.dynamics,
+                    x[i - 1, :],
+                    soln_u,
+                    dt,
+                    "euler",
+                    return_derivatives=True,
                 )
 
                 fun = soln.fun
