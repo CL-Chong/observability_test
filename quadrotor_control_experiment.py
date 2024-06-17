@@ -7,9 +7,9 @@ import matplotlib.pyplot as plt
 import numpy as np
 import tqdm
 
-from observability_aware_control import utils
 from observability_aware_control.algorithms import common, cooperative_localization
 from observability_aware_control.models import multi_quadrotor
+from observability_aware_control.utils import zmq_utils
 from observability_aware_control.utils.utils import generate_leader_trajectory
 
 # testing list: (X) = bad, (1/2) = not sure, (O) = good
@@ -71,7 +71,13 @@ def main():
     )
 
     min_problem = cooperative_localization.CooperativeLocalizingOPC(mdl, opts)
-    anim = utils.anim_utils.Animated3DTrajectory(mdl.n_robots)
+    anim = zmq_utils.Publisher("tcp://localhost:5555")
+    plt_pld = {
+        f"UAV{idx} Trajectory": {"data": [], "fig_num": 0} for idx in range(n_robots)
+    }
+    plt_pld.update(
+        {f"UAV{idx} Altitude": {"data": [], "fig_num": 1} for idx in range(n_robots)}
+    )
 
     # -----------------------Generate initial trajectory------------------------
     leader_trajectory = cfg["session"]["leader_trajectory"]
@@ -161,27 +167,25 @@ def main():
                 fun_hist[0 : len(soln.fun_hist)] = np.asarray(soln.fun_hist)
                 soln_stats["fun_hist"].append(fun_hist)
 
-                anim.annotation = (
-                    f"nit: {nit} f(x): {fun:.4}\n $\\Delta$ f(x):"
-                    f" {(fun - fun_hist[0]):4g}\nOptimality:"
-                    f" {optimality:.4}\nviolation: {constr_violation:.4}"
-                )
-                plt_data = np.reshape(x[0:i, :], (i, mdl.n_robots, mdl.robot_nx))
+                # anim.annotation = (
+                #     f"nit: {nit} f(x): {fun:.4}\n $\\Delta$ f(x):"
+                #     f" {(fun - fun_hist[0]):4g}\nOptimality:"
+                #     f" {optimality:.4}\nviolation: {constr_violation:.4}"
+                # )
+                plt_data = np.reshape(x[i, :], (mdl.n_robots, mdl.robot_nx))
 
-                anim.t = time[0:i]
                 for idx in range(mdl.n_robots):
-                    anim.x[idx] = plt_data[:, idx, 0]
-                    anim.y[idx] = plt_data[:, idx, 1]
-                    anim.z[idx] = plt_data[:, idx, 2]
-                plt.pause(1e-3)
+                    xy, z = plt_data[idx, 0:2].tolist(), plt_data[idx, 2]
+                    plt_pld[f"UAV{idx} Trajectory"]["data"] = xy
+                    plt_pld[f"UAV{idx} Altitude"]["data"] = (time[i], z)
+                anim.send_json(plt_pld)
             success = True
     finally:  # Save the data at all costs
-        anim.anim.save(cfg["session"].get("video_name", "optimization.mp4"))
         soln_stats = {k: np.asarray(v) for k, v in soln_stats.items()}
         save_name = str(cfg["session"].get("save_name", "optimization_results.npz"))
         if not success:
             save_name = save_name.replace(".npz", ".failed.npz")
-        np.savez(save_name, states=x, inputs=u, time=time, **soln_stats)
+        np.savez(save_name, states=x, inputs=u, derivatives=dx, time=time, **soln_stats)
 
     figs = {}
     figs[0], ax = plt.subplots(subplot_kw={"projection": "3d"})
