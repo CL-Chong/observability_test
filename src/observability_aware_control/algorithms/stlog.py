@@ -44,6 +44,8 @@ class STLOG(object):
                 order,
             )
         ]
+
+        self._cov = cov if cov is not None else None
         self._i_cov = jnp.linalg.inv(cov)[None, None, ...] if cov is not None else None
 
         self._order = order
@@ -60,11 +62,11 @@ class STLOG(object):
 
     @property
     def cov(self):
-        return self._i_cov
+        return jnp.squeeze(self._cov) if self._cov is not None else None
 
     @cov.setter
     def cov(self, val):
-        self._i_cov = val
+        self._cov = val
 
     def stlog(self, x, u, dt):
         dalfh = jnp.stack(jax.tree_map(lambda it: it(x, u), self._dalfh_f))
