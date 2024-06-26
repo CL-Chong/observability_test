@@ -1,16 +1,17 @@
-import tomllib
-import pickle
-import numpy as np
-import matplotlib.pyplot as plt
-import jax
-import tqdm
-import jax.numpy as jnp
 import argparse
-import jax.experimental.compilation_cache.compilation_cache as cc
-from observability_aware_control.models import multi_quadrotor
+import pickle
+import tomllib
 
-from observability_aware_control.algorithms import forward_dynamics
+import jax
+import jax.experimental.compilation_cache.compilation_cache as cc
+import jax.numpy as jnp
+import matplotlib.pyplot as plt
+import numpy as np
+import tqdm
+
 import observability_aware_control.algorithms.misc.simple_ekf as ekf
+from observability_aware_control.algorithms.common import forward_dynamics
+from observability_aware_control.models import multi_quadrotor
 
 
 def gaussian_noise(key, cov, shape):
@@ -84,8 +85,25 @@ def main():
     with open(str(args.config), "rb") as fp:
         cfg = tomllib.load(fp)
 
+    n_robots = cfg["model"]["n_robots"]
+    interrobot_observation_kind = cfg["model"]["interrobot_observation_kind"]
+    interrobot_observation_dim = 2 if interrobot_observation_kind == "bearings" else 1
+    cov = np.diag(
+        np.r_[
+            np.full(multi_quadrotor.DIM_LEADER_POS_OBS, 1e-2),
+            np.full(multi_quadrotor.DIM_ATT_OBS * n_robots, 1e-2),
+            np.full(interrobot_observation_dim * (n_robots - 1), 1e-2),
+            np.full(multi_quadrotor.DIM_VEL_OBS * n_robots, 1e-2),
+        ]
+    )
+
     mdl = multi_quadrotor.MultiQuadrotor(
-        cfg["model"]["n_robots"], cfg["model"]["robot_mass"], has_odom=True
+        n_robots,
+        cfg["model"]["robot_mass"],
+        stlog_order=cfg["stlog"]["order"],
+        has_odom=True,
+        stlog_cov=cov,
+        interrobot_observation_kind=interrobot_observation_kind,
     )
 
     n_robots = mdl.n_robots
@@ -143,14 +161,7 @@ def run_experiment(mdl, config):
         ),
         jax.jit(mdl.observation),
         jnp.diag(jnp.tile(jnp.r_[1, jnp.full(3, 1)] / 20, mdl.n_robots)),
-        jnp.diag(
-            jnp.r_[
-                jnp.full(mdl.DIM_LEADER_POS_OBS, 1e-2),
-                jnp.full(mdl.DIM_ATT_OBS * mdl.n_robots, 1e-2),
-                jnp.full(mdl.DIM_BRNG_OBS * (mdl.n_robots - 1), 1e-2),
-                jnp.full(mdl.DIM_VEL_OBS * mdl.n_robots, 1e-2),
-            ]
-        ),
+        mdl.cov,
     )
     seed = config["session"].get("seed", 100)
     key = jax.random.PRNGKey(seed)

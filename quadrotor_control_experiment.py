@@ -94,7 +94,7 @@ def main():
 
     # -----------------Setup initial conditions and data saving-----------------
     sim_steps = int(np.floor((timestamps[-1] - timestamps[0]) / dt)) + 1
-    time = t_sample[0:sim_steps]
+    time = t_sample[0 : sim_steps + 1]
     x = np.zeros((sim_steps, mdl.nx))
     u = np.zeros((sim_steps, mdl.nu))
 
