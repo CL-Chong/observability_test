@@ -2,74 +2,21 @@ import argparse
 import pickle
 import tomllib
 
+import exlib
 import jax
 import jax.experimental.compilation_cache.compilation_cache as cc
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
-import tqdm
+
+jax.config.update("jax_platform_name", "cpu")
 
 import observability_aware_control.algorithms.misc.simple_ekf as ekf
 from observability_aware_control.algorithms.common import forward_dynamics
 from observability_aware_control.models import multi_quadrotor
 
-
-def gaussian_noise(key, cov, shape):
-    noise = jax.random.multivariate_normal(key, jnp.zeros(cov.shape[0]), cov, shape)
-    return jnp.diagonal(noise, axis1=1, axis2=2)
-
-
-@jax.tree_util.Partial(jax.jit, static_argnums=[0])
-def run_state_est(kf, xs, us, dt, cov_op_init, key):
-    f_key, h_key = jax.random.split(key)
-
-    def ekf_update(x_tup, u_tup):
-        x_op, cov_op = x_tup
-        u, y = u_tup
-
-        x_pred, cov_pred = kf.predict(x_op, cov_op, u, dt)
-        res = kf.update(x_pred, cov_pred, y)
-
-        return res, res
-
-    xs_tup = (jnp.array(xs[0, ...]), jnp.array(cov_op_init))
-    u_noise = gaussian_noise(f_key, kf.in_cov, us.shape) / 4
-    ys = jax.vmap(kf.hfcn)(xs)
-    y_noise = gaussian_noise(h_key, kf.obs_cov, ys.shape)
-    us_tup = (us + u_noise, ys + y_noise)
-    _, (x_hist, cov_hist) = jax.lax.scan(ekf_update, xs_tup, us_tup)
-
-    return x_hist, cov_hist
-
-
 cc.initialize_cache("./.cache")
-
 jax.config.update("jax_enable_x64", True)
-
-
-def rms(data):
-    return jnp.sqrt((data**2).mean())
-
-
-def evaluate_state_estimation(kf, states, inputs, time, init_cov, mdl, keys):
-    x_errs = []
-    cov_hists = []
-    dt = time[1] - time[0]
-
-    for seed in tqdm.tqdm(keys):
-        x_hist, cov_hist = run_state_est(kf, states, inputs, dt, init_cov, seed)
-
-        x_err = x_hist - states
-        x_err = x_err.reshape(x_err.shape[0], mdl.n_robots, -1)[:, :, 0:3]
-        x_errs.append(x_err)
-
-        cov_hist = 3 * jnp.sqrt(jnp.diagonal(cov_hist, axis1=1, axis2=2))
-        cov_hist = cov_hist.reshape(cov_hist.shape[0], mdl.n_robots, -1)[:, :, 0:3]
-        cov_hists.append(cov_hist)
-
-    x_err = jnp.array(x_errs).mean(axis=0)
-    cov_hist = jnp.array(cov_hists).mean(axis=0)
-    return time, cov_hist, x_err
 
 
 def main():
@@ -125,7 +72,7 @@ def run_plot(n_robots, trial, config):
             err_mag = np.linalg.norm(x_err[:, idx, :], axis=-1)
             ax1[idx - 1].plot(time, err_mag)
             cov_mag = np.linalg.norm(cov_hist[:, idx, :], axis=-1)
-            rmse = rms(err_mag)
+            rmse = exlib.rms(err_mag)
             ax1[idx - 1].axhline(y=rmse, linestyle="--", color=f"C{id_trial}")
             l, r = time[0], time[-1]
 
@@ -134,7 +81,7 @@ def run_plot(n_robots, trial, config):
             ax1[idx - 1].annotate(
                 (f"{trial_name}\n" r"RMS($||\hat{\mathbf{e}}_p||$) = " f"{rmse:.4}m"),
                 (text_x_pos, rmse),
-                (text_x_pos, 7),
+                (text_x_pos, 0.5),
                 arrowprops={
                     "width": 1,
                     "facecolor": "k",
@@ -143,11 +90,14 @@ def run_plot(n_robots, trial, config):
                 },
                 fontsize=8,
             )
-            ax1[idx - 1].set_ylabel(r"\hat{\mathbf{e}}_p (m)")
-            ax1[idx - 1].set_xlabel("Time (s)")
-            ax1[idx - 1].set_title(f"Follower {idx}")
+            ax1[idx - 1].set_ylabel(
+                r"$\overset{\mathrm{Follower\ %d}}{||\hat{\mathbf{e}}_p||}$ (m)" % idx,
+                fontsize=14,
+            )
             ax1[idx - 1].fill_between(time, cov_mag, alpha=0.2)
-            ax1[idx - 1].set_ylim(top=9)
+            ax1[idx - 1].set_ylim(0, 1)
+            ax1[idx - 1].set_xlim(time[0], time[-1])
+    fig.supxlabel("Time (s)", fontsize=14)
     new_var = config["session"].get("image_save", "state_estimation_results.png")
     fig.tight_layout()
     fig.savefig(new_var)
@@ -181,8 +131,8 @@ def run_experiment(mdl, config):
         inputs = results["inputs"]
         time = results["time"]
 
-        trial[k] = evaluate_state_estimation(
-            kf, states, inputs, time, 3 * jnp.eye(mdl.nx), mdl, keys[2, :]
+        trial[k] = exlib.evaluate_state_estimation(
+            kf, states, inputs, time, jnp.eye(mdl.nx) / 30, mdl, keys[2, :]
         )
 
     with open(config["session"].get("save", "state_estimation_data.pkl"), "wb") as fp:
