@@ -7,10 +7,12 @@ class ModelBase(abc.ABC):
     """Base class (Interface) for all nonlinear dynamical system modesl"""
 
     @abc.abstractmethod
-    def dynamics(self, x, u, *args): ...
+    def dynamics(self, x, u, *args):
+        pass
 
     @abc.abstractmethod
-    def observation(self, x, *args): ...
+    def observation(self, x, *args):
+        pass
 
     @property
     @abc.abstractmethod

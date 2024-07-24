@@ -1,3 +1,5 @@
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 
@@ -21,6 +23,7 @@ class MultiQuadrotor(model_base.MRSBase, stlog.STLOG):
         has_odom=False,
         stlog_cov=None,
         interrobot_observation_kind="bearings",
+        input_kind="thrust",
     ):
         model_base.MRSBase.__init__(self, interrobot_observation_kind)
         stlog.STLOG.__init__(self, stlog_order, stlog_cov)
@@ -32,6 +35,8 @@ class MultiQuadrotor(model_base.MRSBase, stlog.STLOG):
 
         self._state_dims = {"position": 3, "attitude": 4, "velocity": 3}
 
+        self._input_kind = input_kind
+
     @property
     def state_dims(self):
         return self._state_dims
@@ -42,7 +47,11 @@ class MultiQuadrotor(model_base.MRSBase, stlog.STLOG):
 
     @property
     def robot_nu(self):
-        return quadrotor.NU
+        return (
+            quadrotor.NU_THRUST_RATES
+            if self._input_kind == "thrust"
+            else quadrotor.NU_ACCEL_RATES
+        )
 
     @property
     def n_robots(self):
@@ -52,7 +61,7 @@ class MultiQuadrotor(model_base.MRSBase, stlog.STLOG):
         x = self.reshape_x_vec(x)
         u = self.reshape_u_vec(u)
 
-        dynamics = jax.vmap(quadrotor.dynamics)
+        dynamics = jax.vmap(partial(quadrotor.dynamics, input_kind=self._input_kind))
         return dynamics(x, u, self._mass).ravel()
 
     @property
