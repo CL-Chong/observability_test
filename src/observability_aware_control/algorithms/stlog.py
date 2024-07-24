@@ -1,29 +1,10 @@
-import functools
-import inspect
 from typing import Callable
 
 import jax
 import jax.numpy as jnp
 from jax.scipy import special
 
-
-def lfh_impl(fun, vector_field, x, u):
-    _, f_jvp = jax.linearize(functools.partial(fun, u=u), x)
-    return f_jvp(vector_field(x, u))
-
-
-def _lie_derivative(fun, vector_field, order):
-    # Zeroth-order Lie Derivative
-    funsig = inspect.signature(fun)
-    if "u" not in funsig.parameters:
-        lfh = lambda x, u: fun(x)
-    else:
-        lfh = fun
-
-    # Implement the recurrence relationship for higher order lie derivatives
-    for _ in range(order + 1):
-        yield lfh
-        lfh = functools.partial(lfh_impl, lfh, vector_field)
+from observability_aware_control.algorithms.common import lie_derivative
 
 
 class STLOG(object):
