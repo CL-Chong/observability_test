@@ -41,17 +41,20 @@ def main():
         np.r_[
             np.full(multi_quadrotor.DIM_LEADER_POS_OBS, 1e-2),
             np.full(multi_quadrotor.DIM_ATT_OBS * n_robots, 1e-2),
-            np.full(interrobot_observation_dim * (n_robots - 1), 1e-2),
             np.full(multi_quadrotor.DIM_VEL_OBS * n_robots, 1e-2),
+            np.full(interrobot_observation_dim * (n_robots - 1), 1e-2),
         ]
     )
 
-    mdl = multi_quadrotor.MultiQuadrotor(
-        n_robots,
-        cfg["model"]["robot_mass"],
-        has_odom=True,
-        interrobot_observation_kind=interrobot_observation_kind,
-    )
+    if interrobot_observation_kind == "range":
+        mdl = multi_quadrotor.RangeBasedCooperativeQuadrotor(
+            n_robots, cfg["model"]["robot_mass"]
+        )
+    else:
+        mdl = multi_quadrotor.BearingsBasedCooperativeQuadrotor(
+            n_robots, cfg["model"]["robot_mass"]
+        )
+
     window = cfg["opc"]["window_size"]
     u_lb = np.tile(np.array(cfg["optim"]["lb"]), (window, mdl.n_robots))
     u_ub = np.tile(np.array(cfg["optim"]["ub"]), (window, mdl.n_robots))
@@ -133,53 +136,51 @@ def main():
     # ----------------------------Run the Simulation----------------------------
     success = False
     try:
-        with plt.ion():
-            for i in tqdm.trange(1, sim_steps):
-                u_leader_0 = u_leader[i : i + window, :]
+        for i in tqdm.trange(1, sim_steps):
+            u_leader_0 = u_leader[i : i + window, :]
 
-                u0 = np.hstack([u_leader_0, np.tile(u_eqm, (window, mdl.n_robots - 1))])
-                soln = min_problem.minimize(x[i - 1, :], u0, dt)
-                soln_u = np.concatenate([u_leader[i, :], soln.x[0, mdl.robot_nu :]])
-                u[i, :] = soln_u
-                x[i, :], dx[i, :] = common.forward_dynamics(
-                    mdl.dynamics,
-                    x[i - 1, :],
-                    soln_u,
-                    dt,
-                    "euler",
-                    return_derivatives=True,
-                )
+            u0 = np.hstack([u_leader_0, np.tile(u_eqm, (window, mdl.n_robots - 1))])
+            soln = min_problem.minimize(x[i - 1, :], u0, dt)
+            soln_u = np.concatenate([u_leader[i, :], soln.x[0, mdl.robot_nu :]])
+            u[i, :] = soln_u
+            x[i, :], dx[i, :] = common.forward_dynamics(
+                mdl.dynamics,
+                x[i - 1, :],
+                soln_u,
+                dt,
+                "euler",
+                return_derivatives=True,
+            )
 
-                fun = soln.fun
-                status = soln.get("status", -1)
-                nit = soln.get("nit", np.nan)
-                execution_time = soln.get("execution_time", np.nan)
-                constr_violation = float(soln.get("constr_violation", np.nan))
-                optimality = soln.get("optimality", np.nan)
+            fun = soln.fun
+            status = soln.get("status", -1)
+            nit = soln.get("nit", np.nan)
+            execution_time = soln.get("execution_time", np.nan)
+            constr_violation = float(soln.get("constr_violation", np.nan))
+            optimality = soln.get("optimality", np.nan)
 
-                soln_stats["status"].append(status)
-                soln_stats["nit"].append(nit)
-                soln_stats["execution_time"].append(execution_time)
-                soln_stats["constr_violation"].append(constr_violation)
-                soln_stats["optimality"].append(optimality)
+            soln_stats["status"].append(status)
+            soln_stats["nit"].append(nit)
+            soln_stats["execution_time"].append(execution_time)
+            soln_stats["constr_violation"].append(constr_violation)
+            soln_stats["optimality"].append(optimality)
 
-                fun_hist = np.full(cfg["optim"]["options"]["maxiter"], fun)
-                fun_hist[0 : len(soln.fun_hist)] = np.asarray(soln.fun_hist)
-                soln_stats["fun_hist"].append(fun_hist)
+            fun_hist = np.full(cfg["optim"]["options"]["maxiter"], fun)
+            fun_hist[0 : len(soln.fun_hist)] = np.asarray(soln.fun_hist)
+            soln_stats["fun_hist"].append(fun_hist)
 
-                # anim.annotation = (
-                #     f"nit: {nit} f(x): {fun:.4}\n $\\Delta$ f(x):"
-                #     f" {(fun - fun_hist[0]):4g}\nOptimality:"
-                #     f" {optimality:.4}\nviolation: {constr_violation:.4}"
-                # )
-                plt_data = np.reshape(x[i, :], (mdl.n_robots, mdl.robot_nx))
+            # anim.annotation = (
+            #     f"nit: {nit} f(x): {fun:.4}\n $\\Delta$ f(x):"
+            #     f" {(fun - fun_hist[0]):4g}\nOptimality:"
+            #     f" {optimality:.4}\nviolation: {constr_violation:.4}"
+            # )
+            plt_data = np.reshape(x[i, :], (mdl.n_robots, mdl.robot_nx))
 
-                for idx in range(mdl.n_robots):
-                    xy, z = plt_data[idx, 0:2].tolist(), plt_data[idx, 2]
-                    plt_pld[f"UAV{idx} Trajectory"]["data"] = xy
-                    plt_pld[f"UAV{idx} Altitude"]["data"] = (time[i], z)
-                anim.send_json(plt_pld)
-            success = True
+            for idx in range(mdl.n_robots):
+                xy, z = plt_data[idx, 0:2].tolist(), plt_data[idx, 2]
+                plt_pld[f"UAV{idx} Trajectory"]["data"] = xy
+                plt_pld[f"UAV{idx} Altitude"]["data"] = (time[min(i, len(time) - 1)], z)
+            anim.send_json(plt_pld)
     finally:  # Save the data at all costs
         soln_stats = {k: np.asarray(v) for k, v in soln_stats.items()}
         save_name = str(cfg["session"].get("save_name", "optimization_results.npz"))
