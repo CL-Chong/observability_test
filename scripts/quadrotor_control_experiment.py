@@ -49,15 +49,15 @@ def main():
     mdl = multi_quadrotor.MultiQuadrotor(
         n_robots,
         cfg["model"]["robot_mass"],
-        stlog_order=cfg["stlog"]["order"],
         has_odom=True,
-        stlog_cov=cov,
         interrobot_observation_kind=interrobot_observation_kind,
     )
     window = cfg["opc"]["window_size"]
     u_lb = np.tile(np.array(cfg["optim"]["lb"]), (window, mdl.n_robots))
     u_ub = np.tile(np.array(cfg["optim"]["ub"]), (window, mdl.n_robots))
     opts = cooperative_localization.CooperativeLocalizationOptions(
+        stlog_order=cfg["stlog"]["order"],
+        stlog_cov=cov,
         window=window,
         id_leader=0,
         lb=u_lb,

@@ -12,21 +12,18 @@ DIM_ALT_OBS = 1
 DIM_VEL_OBS = 3
 
 
-class MultiQuadrotor(model_base.MRSBase, stlog.STLOG):
+class MultiQuadrotor(model_base.MRSBase):
 
     def __init__(
         self,
         n_robots,
         mass,
-        stlog_order,
         has_baro=False,
         has_odom=False,
-        stlog_cov=None,
         interrobot_observation_kind="bearings",
         input_kind="thrust",
     ):
         model_base.MRSBase.__init__(self, interrobot_observation_kind)
-        stlog.STLOG.__init__(self, stlog_order, stlog_cov)
 
         self._n_robots = n_robots
         self._mass = jnp.broadcast_to(mass, n_robots)
@@ -72,7 +69,7 @@ class MultiQuadrotor(model_base.MRSBase, stlog.STLOG):
     def nu(self):
         return self._n_robots * self.robot_nu
 
-    def observation(self, x):
+    def observation(self, x, u):
         x = self.reshape_x_vec(x)
         pos_ref = x[0, 0:3]
         att = x[:, 3:7].ravel()

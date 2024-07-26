@@ -1,5 +1,3 @@
-from typing import Callable
-
 import jax
 import jax.numpy as jnp
 from jax.scipy import special
@@ -7,27 +5,21 @@ from jax.scipy import special
 from observability_aware_control.algorithms.common import lie_derivative
 
 
-class STLOG(object):
+class STLOG:
     """This class manages computation of the Short Time Local observability Gramian"""
 
-    observation: Callable
-    dynamics: Callable
-    nx: int
-
-    def __init__(self, order, cov=None):
+    def __init__(self, dynamics, observation, order, cov=None):
 
         # Setup the lie derivatives
         self._dalfh_f = [
-            jax.jacobian(it)
-            for it in _lie_derivative(
-                self.observation,
-                self.dynamics,
-                order,
-            )
+            jax.jacobian(it) for it in lie_derivative(observation, dynamics, order)
         ]
 
         self._cov = cov if cov is not None else None
-        self._i_cov = jnp.linalg.inv(cov)[None, None, ...] if cov is not None else None
+        if cov is not None:
+            self._inv_cov = jnp.linalg.inv(cov)[None, None, ...]
+        else:
+            self._inv_cov = None
 
         self._order = order
         # Cache some order-dependent constant numeric data for stlog evaluation
@@ -50,11 +42,11 @@ class STLOG(object):
         self._cov = val
 
     def stlog(self, x, u, dt):
-        dalfh = jnp.stack(jax.tree_map(lambda it: it(x, u), self._dalfh_f))
+        dalfh = jnp.stack([it(x, u) for it in self._dalfh_f])
         coeff = (dt**self._k / self._den)[..., None, None]
-        if self._i_cov is None:
+        if self._inv_cov is None:
             return jnp.sum(coeff * dalfh[self._a].mT @ dalfh[self._b], axis=(0, 1))
         else:
             return jnp.sum(
-                coeff * dalfh[self._a].mT @ self._i_cov @ dalfh[self._b], axis=(0, 1)
+                coeff * dalfh[self._a].mT @ self._inv_cov @ dalfh[self._b], axis=(0, 1)
             )

@@ -5,18 +5,23 @@ import jax.numpy as jnp
 import jax.numpy.linalg as la
 from jax.typing import ArrayLike
 
+from observability_aware_control.algorithms import stlog
+
 from . import common
 
 
 class OPCCost:
-    def __init__(self, model, dt_stlog, obs_comps: Optional[ArrayLike] = None):
+    def __init__(
+        self, model, dt_stlog, order, *, cov=None, obs_comps: Optional[ArrayLike] = None
+    ):
         self._mdl = model
         if obs_comps is not None:
             obs_comps = jnp.asarray(obs_comps, dtype=jnp.int32)
-            self._i_stlog = jnp.ix_(obs_comps, obs_comps)
+            self._i_stlog = (...,) + jnp.ix_(obs_comps, obs_comps)
         else:
             self._i_stlog = ...
 
+        self._stlog = stlog.STLOG(model.dynamics, model.observation, order, cov)
         self._dt_stlog = dt_stlog
 
     @property
@@ -32,7 +37,7 @@ class OPCCost:
         # to be sliced
         @jax.vmap
         def eval_stlog(x, u, dt):
-            return self.model.stlog(x, u, dt)[self._i_stlog]
+            return self._stlog.stlog(x, u, dt)[self._i_stlog]
 
         # STLOGs are cached to a variable that may be optionally returned
         stlog_ = eval_stlog(xs, us, self._dt_stlog)

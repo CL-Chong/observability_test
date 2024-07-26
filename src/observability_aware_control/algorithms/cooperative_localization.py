@@ -21,6 +21,8 @@ jitmember = functools.partial(jax.jit, static_argnames=("self",))
 
 @dataclasses.dataclass
 class CooperativeLocalizationOptions:
+    stlog_order: int
+    stlog_cov: Optional[ArrayLike] = None
     window: int = dataclasses.field(default=1)
     obs_comps: Optional[ArrayLike] = None
     dt_stlog: Optional[float] = None
@@ -36,7 +38,14 @@ class CooperativeLocalizationOptions:
 class CooperativeLocalizingOPC(opc.OPCCost):
     def __init__(self, model, opts: CooperativeLocalizationOptions):
         # Initialize the underlying cost function
-        opc.OPCCost.__init__(self, model, opts.dt_stlog, opts.obs_comps)
+        opc.OPCCost.__init__(
+            self,
+            model,
+            opts.dt_stlog,
+            opts.stlog_order,
+            obs_comps=opts.obs_comps,
+            cov=opts.stlog_cov,
+        )
 
         # Pick up some constants from the model inside the OPC
         self._nu = self.model.nu
